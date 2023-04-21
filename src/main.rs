@@ -5,9 +5,13 @@ use tracing::warn;
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use kube::CustomResourceExt;
+
 mod config;
+mod crd;
 
 use crate::config::Settings;
+use crate::crd::Workflow;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,6 +28,8 @@ async fn main() -> Result<()> {
     warn!("Debug assertions enabled");
 
     let _ = Settings::new()?;
+
+    println!("crd: {}", serde_yaml::to_string(&Workflow::crd()).unwrap());
 
     Ok(())
 }
