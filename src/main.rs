@@ -9,6 +9,7 @@ use kube::CustomResourceExt;
 
 mod config;
 mod crd;
+mod crd_storage;
 
 use crate::config::Settings;
 use crate::crd::Workflow;
