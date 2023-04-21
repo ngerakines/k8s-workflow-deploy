@@ -17,3 +17,9 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# Configuration files
+/local.*
+/development.json
+/development.toml
+/development.yml
