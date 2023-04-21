@@ -16,8 +16,8 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            ngerakines/countdown-metrics
-            ghcr.io/ngerakines/countdown-metrics
+            ngerakines/workflow-deploy
+            ghcr.io/ngerakines/workflow-deploy
       - name: Build and push Docker images
         uses: docker/build-push-action@v4
         with:
