@@ -1,52 +1,48 @@
 use std::env;
 
-use derive_builder::Builder;
+use config::{Config, ConfigError, Environment, File};
+use serde::Deserialize;
+use tracing::info;
 
-#[derive(Builder, Clone, Debug)]
-#[builder(setter(into, strip_option))]
-pub struct Config {
-    #[builder(setter(into), default = "self.default_version()")]
-    pub version: String,
-
-    #[builder(setter(into), default = "self.default_port()")]
-    pub port: u16,
-
-    #[builder(setter(into), default = "self.default_secure_port()")]
-    pub secure_port: u16,
-
-    #[builder(setter(into), default = "self.default_certificate()")]
-    pub certificate: String,
-
-    #[builder(setter(into), default = "self.default_certificate_key()")]
-    pub certificate_key: String,
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub(crate) struct Http {
+    pub(crate) enabled: bool,
+    pub(crate) port: u16,
+    pub(crate) address: String,
 }
 
-impl ConfigBuilder {
-    fn default_version(&self) -> String {
-        option_env!("GIT_HASH")
-            .unwrap_or(env!("CARGO_PKG_VERSION", "develop"))
-            .to_string()
-    }
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub(crate) struct Https {
+    pub(crate) enabled: bool,
+    pub(crate) port: u16,
+    pub(crate) address: String,
+    pub(crate) certificate: String,
+    pub(crate) certificate_key: String,
+}
 
-    fn default_port(&self) -> u16 {
-        env::var("PORT")
-            .unwrap_or("8080".to_string())
-            .parse::<u16>()
-            .unwrap_or(8080)
-    }
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub struct Settings {
+    pub(crate) http: Http,
+    pub(crate) https: Option<Https>,
+}
 
-    fn default_secure_port(&self) -> u16 {
-        env::var("SECURE_PORT")
-            .unwrap_or("8443".to_string())
-            .parse::<u16>()
-            .unwrap_or(8443)
-    }
+impl Settings {
+    pub fn new() -> Result<Self, ConfigError> {
+        let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "development".into());
 
-    fn default_certificate(&self) -> String {
-        env::var("CERTIFICATE").unwrap_or("".to_string())
-    }
+        let s = Config::builder()
+            .add_source(File::with_name("default"))
+            .add_source(File::with_name(&run_mode).required(false))
+            .add_source(File::with_name("local").required(false))
+            .add_source(Environment::with_prefix("kwd"))
+            .build()?;
 
-    fn default_certificate_key(&self) -> String {
-        env::var("CERTIFICATE_KEY").unwrap_or("".to_string())
+        info!("http: {:?}", s.get_bool("http.enabled"));
+        info!("https: {:?}", s.get_bool("https.enabled"));
+
+        s.try_deserialize()
     }
 }
