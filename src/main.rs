@@ -15,11 +15,13 @@ mod config;
 mod context;
 mod crd;
 mod crd_storage;
+mod watch_deployment;
 mod watch_namespace;
 
 use crate::config::Settings;
 use crate::crd::Workflow;
 use crate::crd_storage::get_workflow_storage;
+use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
 
 #[tokio::main]
@@ -47,22 +49,43 @@ async fn main() -> Result<()> {
         workflow_storage,
     )));
 
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<bool>(100);
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel::<bool>(100);
     let (rev_shutdown_tx, mut rev_shutdown_rx) = tokio::sync::broadcast::channel::<bool>(100);
 
-    let loop_join_handler = tokio::spawn(async move {
-        let loop_rx = shutdown_rx.borrow_mut();
-        if let Err(err) = watch_namespace(settings, app_context, loop_rx).await {
-            error!(cause = ?err, "metric_loop error");
-            rev_shutdown_tx.send(true).unwrap();
-        }
-    });
+    let namespace_join_handler = {
+        let d_shutdown_tx = shutdown_tx.clone();
+        let settings = settings.clone();
+        let app_context = app_context.clone();
+        let ns_rev_shutdown_tx = rev_shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut loop_rx = d_shutdown_tx.subscribe();
+            if let Err(err) = watch_namespace(settings, app_context, &mut loop_rx).await {
+                error!(cause = ?err, "metric_loop error");
+                ns_rev_shutdown_tx.send(true).unwrap();
+            }
+        })
+    };
+
+    let deployment_join_handler = {
+        let d_shutdown_tx = shutdown_tx.clone();
+        let settings = settings.clone();
+        let app_context = app_context.clone();
+        let d_rev_shutdown_tx = rev_shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut loop_rx = d_shutdown_tx.subscribe();
+            if let Err(err) = watch_deployment(settings.clone(), app_context, &mut loop_rx).await {
+                error!(cause = ?err, "metric_loop error");
+                d_rev_shutdown_tx.send(true).unwrap();
+            }
+        })
+    };
 
     shutdown_signal(rev_shutdown_rx.borrow_mut()).await;
 
     shutdown_tx.send(true)?;
 
-    loop_join_handler.await?;
+    namespace_join_handler.await?;
+    deployment_join_handler.await?;
 
     Ok(())
 }
