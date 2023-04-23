@@ -41,3 +41,7 @@ docker push localhost:5000/k8s-workflow-deploy:latest
 docker push localhost:5000/k8s-workflow-deploy:`git rev-parse HEAD`
 kubectl -n workflow-deployment set image deployment/workflow-deployment app=localhost:5000/k8s-workflow-deploy:`git rev-parse HEAD`
 ```
+
+## Examples
+
+    $ kubectl apply -f ./k8s-resources/workflow_standard.yml
