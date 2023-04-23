@@ -25,7 +25,7 @@ spec:
           imagePullPolicy: Always
           env:
           - name: RUST_LOG
-            value: debug
+            value: k8s_workflow_deploy=debug,info
           startupProbe:
             exec:
               command: ["cat", "/tmp/started"]

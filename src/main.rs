@@ -34,11 +34,10 @@ use crate::watch_workflow::watch_workflow;
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
-        // Enable after https://github.com/tokio-rs/tracing/pull/2566
-        // .with(tracing_subscriber::EnvFilter::new(
-        //     std::env::var("RUST_LOG")
-        //         .unwrap_or_else(|_| "debug".into()),
-        // ))
+        .with(tracing_subscriber::EnvFilter::new(
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "k8s_workflow_deploy=debug,info".into()),
+        ))
         .with(tracing_subscriber::fmt::layer().json())
         .init();
 
