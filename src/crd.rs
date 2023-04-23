@@ -39,7 +39,6 @@ pub(crate) struct WorkflowStep {
 )]
 pub(crate) struct WorkflowSpec {
     pub(crate) version: String,
-    pub(crate) group_by_namespace: Option<bool>,
     pub(crate) group_annotations: Option<Vec<String>>,
     pub(crate) debounce: Option<u32>,
     pub(crate) supression: Option<Vec<SupressionRange>>,
@@ -47,17 +46,9 @@ pub(crate) struct WorkflowSpec {
 }
 
 impl Workflow {
-    #[allow(unused)]
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
         hasher.write(format!("version={}", self.spec.version).as_bytes());
-        hasher.write(
-            format!(
-                "group_by_namespace={}",
-                self.spec.group_by_namespace.unwrap_or_default()
-            )
-            .as_bytes(),
-        );
         for annotation in self.spec.group_annotations.as_ref().unwrap_or(&vec![]) {
             hasher.write(format!("group_annotations={}", annotation).as_bytes());
         }
@@ -73,7 +64,6 @@ impl Workflow {
 }
 
 impl SupressionRange {
-    #[allow(unused)]
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
         hasher.write(
@@ -89,7 +79,6 @@ impl SupressionRange {
 }
 
 impl WorkflowStep {
-    #[allow(unused)]
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
         hasher.write(format!("position={}", self.position.unwrap_or_default()).as_bytes());
@@ -101,7 +90,6 @@ impl WorkflowStep {
 }
 
 impl WorkflowStepAction {
-    #[allow(unused)]
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
         hasher.write(format!("position={}", self.position.unwrap_or_default()).as_bytes());
@@ -113,7 +101,6 @@ impl WorkflowStepAction {
 }
 
 impl WorkflowStepActionTarget {
-    #[allow(unused)]
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
         hasher.write(format!("resource={} name={}", self.resource, self.name).as_bytes());
@@ -136,13 +123,12 @@ mod tests {
             metadata: Default::default(),
             spec: WorkflowSpec {
                 version: "v1".to_string(),
-                group_by_namespace: None,
                 group_annotations: None,
                 debounce: None,
                 supression: None,
                 steps: None,
             },
         };
-        assert_eq!(workflow.checksum(), 9021128205704642950);
+        assert_eq!(workflow.checksum(), 4849047191342515765);
     }
 }

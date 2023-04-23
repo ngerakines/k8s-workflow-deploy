@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::crd::Workflow;
 
@@ -14,6 +14,27 @@ pub(crate) struct KnownResource {
     pub(crate) kind: String,
     pub(crate) name: String,
     pub(crate) workflow: String,
+    pub(crate) annotations: BTreeMap<String, String>,
+}
+
+impl KnownResource {
+    pub(crate) fn group_key(&self, keys: &Vec<String>) -> String {
+        if keys.is_empty() {
+            return self.namespace.clone();
+        }
+        let mut group_key = String::new();
+        let mut sep = String::new();
+        for key in keys {
+            if key == "namespace" {
+                group_key.push_str(&format!("{}{}", sep, self.namespace));
+                sep = ",".to_string();
+            } else if let Some(v) = self.annotations.get(key) {
+                group_key.push_str(&format!("{}{}", sep, v));
+                sep = ",".to_string();
+            }
+        }
+        group_key
+    }
 }
 
 #[async_trait]
@@ -29,6 +50,7 @@ pub(crate) trait WorkflowStorage: Sync + Send {
         kind: String,
         name: String,
         workflow: String,
+        annotations: BTreeMap<String, String>,
     ) -> Result<()>;
     // Remove a resource from the list of known resources.
     async fn remove_resource(&self, namespace: String, kind: String, name: String) -> Result<()>;
@@ -64,6 +86,7 @@ impl WorkflowStorage for NullWorkflowStorager {
         _kind: String,
         _name: String,
         _workflow: String,
+        _annotations: BTreeMap<String, String>,
     ) -> Result<()> {
         Ok(())
     }
@@ -161,6 +184,7 @@ impl WorkflowStorage for MemoryWorkflowStorager {
         kind: String,
         name: String,
         workflow: String,
+        annotations: BTreeMap<String, String>,
     ) -> Result<()> {
         let inner_lock = self.inner.lock();
         let mut inner = inner_lock.borrow_mut();
@@ -170,6 +194,7 @@ impl WorkflowStorage for MemoryWorkflowStorager {
             kind,
             name,
             workflow,
+            annotations,
         });
 
         Ok(())
@@ -211,7 +236,6 @@ impl WorkflowStorage for MemoryWorkflowStorager {
     }
 }
 
-#[allow(unused)]
 pub(crate) fn get_workflow_storage(workflow_storage_type: &str) -> Box<dyn WorkflowStorage> {
     match workflow_storage_type {
         #[cfg(debug_assertions)]
@@ -220,5 +244,96 @@ pub(crate) fn get_workflow_storage(workflow_storage_type: &str) -> Box<dyn Workf
         "memory" => Box::<MemoryWorkflowStorager>::default() as Box<dyn WorkflowStorage>,
 
         _ => panic!("Unknown workflow storage type: {workflow_storage_type}"),
+    }
+}
+
+#[allow(unused)]
+pub(crate) fn group_resources(
+    workflow: Workflow,
+    resources: Vec<KnownResource>,
+) -> Vec<(u32, String)> {
+    let group_annotations = workflow.spec.group_annotations.unwrap_or_default();
+    let mut results = HashSet::new();
+    for resource in resources {
+        results.insert((1, resource.group_key(&group_annotations)));
+    }
+    let mut groups: Vec<(u32, String)> = results.into_iter().collect();
+    groups.sort();
+    groups
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::crd::WorkflowSpec;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_group_resources() {
+        let default_workflow = Workflow {
+            metadata: Default::default(),
+            spec: WorkflowSpec {
+                version: "v1".to_string(),
+                group_annotations: None,
+                debounce: None,
+                supression: None,
+                steps: None,
+            },
+        };
+        let namespaced_subgroups_workflow = Workflow {
+            metadata: Default::default(),
+            spec: WorkflowSpec {
+                version: "v1".to_string(),
+                group_annotations: Some(vec!["namespace".to_string(), "subgroup".to_string()]),
+                debounce: None,
+                supression: None,
+                steps: None,
+            },
+        };
+        let subgroups_workflow = Workflow {
+            metadata: Default::default(),
+            spec: WorkflowSpec {
+                version: "v1".to_string(),
+                group_annotations: Some(vec!["subgroup".to_string()]),
+                debounce: None,
+                supression: None,
+                steps: None,
+            },
+        };
+        let resources = vec![
+            KnownResource {
+                namespace: "foo".to_string(),
+                kind: "Deployment".to_string(),
+                name: "api".to_string(),
+                workflow: "default".to_string(),
+                annotations: BTreeMap::from([("subgroup".to_string(), "main".to_string())]),
+            },
+            KnownResource {
+                namespace: "foo".to_string(),
+                kind: "Deployment".to_string(),
+                name: "worker".to_string(),
+                workflow: "default".to_string(),
+                annotations: BTreeMap::from([("subgroup".to_string(), "main".to_string())]),
+            },
+            KnownResource {
+                namespace: "foo".to_string(),
+                kind: "Deployment".to_string(),
+                name: "canary-api".to_string(),
+                workflow: "default".to_string(),
+                annotations: BTreeMap::from([("subgroup".to_string(), "canary".to_string())]),
+            },
+        ];
+        assert_eq!(
+            group_resources(default_workflow, resources.clone()),
+            vec![(1, "foo".to_string()),]
+        );
+        assert_eq!(
+            group_resources(namespaced_subgroups_workflow, resources.clone()),
+            vec![(1, "foo,canary".to_string()), (1, "foo,main".to_string())]
+        );
+        assert_eq!(
+            group_resources(subgroups_workflow, resources),
+            vec![(1, "canary".to_string()), (1, "main".to_string())]
+        );
     }
 }
