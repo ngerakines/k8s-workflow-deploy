@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures::prelude::*;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
-    api::{Api, DeleteParams, ListParams, PostParams, ResourceExt},
+    api::{Api, DeleteParams, PostParams, ResourceExt},
     runtime::watcher,
     Client, CustomResourceExt,
 };
@@ -22,7 +22,7 @@ pub(crate) async fn watch_workflow(
 
     info!("kubernetes workflow watcher started");
 
-    let deployment_watcher = watcher(api, ListParams::default()).try_for_each(|event| async {
+    let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
             kube::runtime::watcher::Event::Deleted(_workflow) => {}
             kube::runtime::watcher::Event::Applied(_workflow) => {}

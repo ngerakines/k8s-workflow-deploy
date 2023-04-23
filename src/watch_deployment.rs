@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures::prelude::*;
 use k8s_openapi::{api::apps::v1::Deployment, Resource};
 use kube::{
-    api::{Api, ListParams, ResourceExt},
+    api::{Api, ResourceExt},
     runtime::watcher,
     Client,
 };
@@ -23,7 +23,7 @@ pub(crate) async fn watch_deployment(
 
     info!("kubernetes deployment watcher started");
 
-    let deployment_watcher = watcher(api, ListParams::default()).try_for_each(|event| async {
+    let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
             kube::runtime::watcher::Event::Deleted(deployment) => {
                 if let Err(err) = context

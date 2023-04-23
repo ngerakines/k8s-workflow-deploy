@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures::prelude::*;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{
-    api::{Api, ListParams, ResourceExt},
+    api::{Api, ResourceExt},
     runtime::watcher,
     Client,
 };
@@ -21,7 +21,7 @@ pub(crate) async fn watch_namespace(
 
     info!("kubernetes namespace watcher started");
 
-    let deployment_watcher = watcher(api, ListParams::default()).try_for_each(|event| async {
+    let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
             kube::runtime::watcher::Event::Deleted(namespace) => {
                 if let Err(err) = context
