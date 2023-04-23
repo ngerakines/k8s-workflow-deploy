@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::Utc;
 use futures::prelude::*;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
@@ -9,7 +10,7 @@ use kube::{
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info, log::warn};
 
-use crate::crd::Workflow;
+use crate::{action::Action, crd::Workflow};
 use crate::{config::Settings, context::Context};
 
 pub(crate) async fn watch_workflow(
@@ -23,6 +24,7 @@ pub(crate) async fn watch_workflow(
     info!("kubernetes workflow watcher started");
 
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
+        let now = Utc::now();
         match event {
             kube::runtime::watcher::Event::Deleted(_workflow) => {
                 warn!("Deleting workflows is not supported");
@@ -31,6 +33,13 @@ pub(crate) async fn watch_workflow(
                 if let Err(err) = context
                     .workflow_storage
                     .add_workflow(workflow.clone())
+                    .await
+                {
+                    error!("Failed to remove workflow: {}", err);
+                }
+                if let Err(err) = context
+                    .action_tx
+                    .send(Action::WorkflowUpdated(workflow.name_any(), now))
                     .await
                 {
                     error!("Failed to remove workflow: {}", err);

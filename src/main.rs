@@ -15,6 +15,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use kube::CustomResourceExt;
 
+mod action;
+mod action_loop;
 mod config;
 mod context;
 mod crd;
@@ -25,6 +27,8 @@ mod watch_deployment;
 mod watch_namespace;
 mod watch_workflow;
 
+use crate::action::Action;
+use crate::action_loop::action_loop;
 use crate::config::Settings;
 use crate::crd::Workflow;
 use crate::crd_storage::get_workflow_storage;
@@ -51,9 +55,12 @@ async fn main() -> Result<()> {
 
     let workflow_storage = get_workflow_storage("memory");
 
+    let (action_tx, mut action_rx) = tokio::sync::mpsc::channel::<Action>(100);
+
     let app_context = context::Context(Arc::new(context::InnerContext::new(
         settings.clone(),
         workflow_storage,
+        action_tx.clone(),
     )));
 
     init_workflow_crd().await?;
@@ -69,7 +76,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             let mut loop_rx = d_shutdown_tx.subscribe();
             if let Err(err) = watch_namespace(settings, app_context, &mut loop_rx).await {
-                error!(cause = ?err, "metric_loop error");
+                error!(cause = ?err, "watch_namespace error");
                 ns_rev_shutdown_tx.send(true).unwrap();
             }
         })
@@ -83,7 +90,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             let mut loop_rx = d_shutdown_tx.subscribe();
             if let Err(err) = watch_deployment(settings.clone(), app_context, &mut loop_rx).await {
-                error!(cause = ?err, "metric_loop error");
+                error!(cause = ?err, "watch_deployment error");
                 d_rev_shutdown_tx.send(true).unwrap();
             }
         })
@@ -97,7 +104,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             let mut loop_rx = w_shutdown_tx.subscribe();
             if let Err(err) = watch_workflow(settings.clone(), app_context, &mut loop_rx).await {
-                error!(cause = ?err, "metric_loop error");
+                error!(cause = ?err, "watch_workflow error");
                 w_rev_shutdown_tx.send(true).unwrap();
             }
         })
@@ -111,8 +118,24 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             let mut loop_rx = r_shutdown_tx.subscribe();
             if let Err(err) = reconcile_loop(settings.clone(), app_context, &mut loop_rx).await {
-                error!(cause = ?err, "metric_loop error");
+                error!(cause = ?err, "reconcile_loop error");
                 r_rev_shutdown_tx.send(true).unwrap();
+            }
+        })
+    };
+
+    let action_join_handler = {
+        let a_shutdown_tx = shutdown_tx.clone();
+        let settings = settings.clone();
+        let app_context = app_context.clone();
+        let a_rev_shutdown_tx = rev_shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut loop_rx = a_shutdown_tx.subscribe();
+            if let Err(err) =
+                action_loop(settings.clone(), app_context, &mut loop_rx, &mut action_rx).await
+            {
+                error!(cause = ?err, "action_loop error");
+                a_rev_shutdown_tx.send(true).unwrap();
             }
         })
     };
@@ -138,6 +161,7 @@ async fn main() -> Result<()> {
     deployment_join_handler.await?;
     workflow_join_handler.await?;
     reconcile_join_handler.await?;
+    action_join_handler.await?;
 
     Ok(())
 }
