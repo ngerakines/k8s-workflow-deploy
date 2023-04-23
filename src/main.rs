@@ -17,12 +17,14 @@ mod crd;
 mod crd_storage;
 mod watch_deployment;
 mod watch_namespace;
+mod watch_workflow;
 
 use crate::config::Settings;
 use crate::crd::Workflow;
 use crate::crd_storage::get_workflow_storage;
 use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
+use crate::watch_workflow::watch_workflow;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -80,12 +82,27 @@ async fn main() -> Result<()> {
         })
     };
 
+    let workflow_join_handler = {
+        let w_shutdown_tx = shutdown_tx.clone();
+        let settings = settings.clone();
+        let app_context = app_context.clone();
+        let w_rev_shutdown_tx = rev_shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut loop_rx = w_shutdown_tx.subscribe();
+            if let Err(err) = watch_workflow(settings.clone(), app_context, &mut loop_rx).await {
+                error!(cause = ?err, "metric_loop error");
+                w_rev_shutdown_tx.send(true).unwrap();
+            }
+        })
+    };
+
     shutdown_signal(rev_shutdown_rx.borrow_mut()).await;
 
     shutdown_tx.send(true)?;
 
     namespace_join_handler.await?;
     deployment_join_handler.await?;
+    workflow_join_handler.await?;
 
     Ok(())
 }
