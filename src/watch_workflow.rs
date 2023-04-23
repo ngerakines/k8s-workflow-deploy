@@ -8,8 +8,8 @@ use kube::{
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
 
-use crate::{config::Settings, context::Context};
 use crate::crd::Workflow;
+use crate::{config::Settings, context::Context};
 
 pub(crate) async fn watch_workflow(
     _settings: Settings,
@@ -23,8 +23,8 @@ pub(crate) async fn watch_workflow(
 
     let deployment_watcher = watcher(api, ListParams::default()).try_for_each(|event| async {
         match event {
-            kube::runtime::watcher::Event::Deleted(_workflow) => { }
-            kube::runtime::watcher::Event::Applied(_workflow) => { }
+            kube::runtime::watcher::Event::Deleted(_workflow) => {}
+            kube::runtime::watcher::Event::Applied(_workflow) => {}
             _ => {}
         }
         Ok(())

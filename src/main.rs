@@ -1,10 +1,14 @@
 use anyhow::Result;
 use std::borrow::BorrowMut;
+use std::fs::OpenOptions;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast::Receiver;
+
 #[cfg(debug_assertions)]
 use tracing::warn;
+
 use tracing::{error, info};
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -15,6 +19,7 @@ mod config;
 mod context;
 mod crd;
 mod crd_storage;
+mod k8s_util;
 mod watch_deployment;
 mod watch_namespace;
 mod watch_workflow;
@@ -95,6 +100,19 @@ async fn main() -> Result<()> {
             }
         })
     };
+
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&Path::new("/tmp/started"))?;
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&Path::new("/tmp/alive"))?;
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&Path::new("/tmp/ready"))?;
 
     shutdown_signal(rev_shutdown_rx.borrow_mut()).await;
 

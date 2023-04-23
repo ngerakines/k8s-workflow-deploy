@@ -2,18 +2,18 @@ use anyhow::Result;
 use futures::prelude::*;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{
-    api::{Api, ListParams},
+    api::{Api, ListParams, ResourceExt},
     runtime::watcher,
     Client,
 };
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
 
-use crate::{config::Settings, context::Context};
+use crate::{config::Settings, context::Context, k8s_util::annotation_true};
 
 pub(crate) async fn watch_namespace(
     _settings: Settings,
-    _context: Context,
+    context: Context,
     shutdown: &mut Receiver<bool>,
 ) -> Result<()> {
     let client = Client::try_default().await.map_err(anyhow::Error::msg)?;
@@ -23,11 +23,39 @@ pub(crate) async fn watch_namespace(
 
     let deployment_watcher = watcher(api, ListParams::default()).try_for_each(|event| async {
         match event {
-            kube::runtime::watcher::Event::Deleted(_namespace) => {
-                // TODO: Don't unwatch deployments that aren't annotated.
+            kube::runtime::watcher::Event::Deleted(namespace) => {
+                if let Err(err) = context
+                    .workflow_storage
+                    .disable_namespace(namespace.name_any())
+                    .await
+                {
+                    error!("Failed to disable namespace: {}", err);
+                }
             }
-            kube::runtime::watcher::Event::Applied(_namespace) => {
-                // TODO: Look for annotation removal and unwatch accordingly.
+            kube::runtime::watcher::Event::Applied(namespace) => {
+                match annotation_true(
+                    namespace.annotations(),
+                    "workflow-deploy.ngerakines.me/enabled",
+                ) {
+                    true => {
+                        if let Err(err) = context
+                            .workflow_storage
+                            .enable_namespace(namespace.name_any())
+                            .await
+                        {
+                            error!("Failed to enable namespace: {}", err);
+                        }
+                    }
+                    false => {
+                        if let Err(err) = context
+                            .workflow_storage
+                            .disable_namespace(namespace.name_any())
+                            .await
+                        {
+                            error!("Failed to disable namespace: {}", err);
+                        }
+                    }
+                }
             }
             _ => {}
         }

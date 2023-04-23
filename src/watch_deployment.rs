@@ -1,8 +1,8 @@
 use anyhow::Result;
 use futures::prelude::*;
-use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::{api::apps::v1::Deployment, Resource};
 use kube::{
-    api::{Api, ListParams},
+    api::{Api, ListParams, ResourceExt},
     runtime::watcher,
     Client,
 };
@@ -13,21 +13,65 @@ use crate::{config::Settings, context::Context};
 
 pub(crate) async fn watch_deployment(
     _settings: Settings,
-    _context: Context,
+    context: Context,
     shutdown: &mut Receiver<bool>,
 ) -> Result<()> {
     let client = Client::try_default().await.map_err(anyhow::Error::msg)?;
     let api = Api::<Deployment>::all(client.clone());
 
+    let deployment_kind = format!("{};{}", Deployment::API_VERSION, Deployment::KIND);
+
     info!("kubernetes deployment watcher started");
 
     let deployment_watcher = watcher(api, ListParams::default()).try_for_each(|event| async {
         match event {
-            kube::runtime::watcher::Event::Deleted(_deployment) => {
-                // TODO: Don't unwatch deployments that aren't annotated.
+            kube::runtime::watcher::Event::Deleted(deployment) => {
+                if let Err(err) = context
+                    .workflow_storage
+                    .remove_resource(
+                        deployment.namespace().unwrap_or("default".to_string()),
+                        deployment_kind.clone(),
+                        deployment.name_any(),
+                    )
+                    .await
+                {
+                    error!("Failed to remove resource: {}", err);
+                }
             }
-            kube::runtime::watcher::Event::Applied(_deployment) => {
-                // TODO: Look for annotation removal and unwatch accordingly.
+            kube::runtime::watcher::Event::Applied(deployment) => {
+                let namespace = deployment.namespace().unwrap_or("default".to_string());
+                match deployment
+                    .annotations()
+                    .get("workflow-deploy.ngerakines.me/workflow")
+                {
+                    Some(workflow) => {
+                        if let Err(err) = context
+                            .workflow_storage
+                            .add_resource(
+                                namespace,
+                                deployment_kind.clone(),
+                                deployment.name_any(),
+                                workflow.to_string(),
+                            )
+                            .await
+                        {
+                            error!("Failed to add resource: {}", err);
+                        }
+                    }
+                    None => {
+                        if let Err(err) = context
+                            .workflow_storage
+                            .remove_resource(
+                                namespace,
+                                deployment_kind.clone(),
+                                deployment.name_any(),
+                            )
+                            .await
+                        {
+                            error!("Failed to remove resource: {}", err);
+                        }
+                    }
+                }
             }
             _ => {}
         }
