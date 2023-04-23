@@ -1,9 +1,10 @@
 use anyhow::Result;
 use futures::prelude::*;
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
-    api::{Api, ListParams},
+    api::{Api, DeleteParams, ListParams, PostParams, ResourceExt},
     runtime::watcher,
-    Client,
+    Client, CustomResourceExt,
 };
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
@@ -40,6 +41,45 @@ pub(crate) async fn watch_workflow(
     };
 
     info!("kubernetes workflow watcher stopped");
+
+    Ok(())
+}
+
+pub(crate) async fn init_workflow_crd() -> Result<()> {
+    let client = Client::try_default().await.map_err(anyhow::Error::msg)?;
+    let crds: Api<CustomResourceDefinition> = Api::all(client.clone());
+
+    let dp = DeleteParams::default();
+    let _ = crds
+        .delete("workflow-deploy.ngerakines.me", &dp)
+        .await
+        .map(|res| {
+            res.map_left(|o| {
+                info!(
+                    "Deleting {}: ({:?})",
+                    o.name_any(),
+                    o.status.unwrap().conditions.unwrap().last()
+                );
+            })
+            .map_right(|s| {
+                info!("Deleted workflow-deploy.ngerakines.me: ({:?})", s);
+            })
+        });
+
+    let workflow_crd = Workflow::crd();
+
+    let pp = PostParams::default();
+    match crds.create(&pp, &workflow_crd).await {
+        Ok(o) => {
+            info!("Created {} ({:?})", o.name_any(), o.status.unwrap());
+        }
+        Err(kube::Error::Api(ae)) => {
+            if ae.code != 409 {
+                return Err(ae.into());
+            }
+        }
+        Err(e) => return Err(e.into()),
+    }
 
     Ok(())
 }

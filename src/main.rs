@@ -29,14 +29,13 @@ use crate::crd::Workflow;
 use crate::crd_storage::get_workflow_storage;
 use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
-use crate::watch_workflow::watch_workflow;
+use crate::watch_workflow::{init_workflow_crd, watch_workflow};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "k8s_workflow_deploy=debug,info".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "k8s_workflow_deploy=debug,info".into()),
         ))
         .with(tracing_subscriber::fmt::layer().json())
         .init();
@@ -54,6 +53,8 @@ async fn main() -> Result<()> {
         settings.clone(),
         workflow_storage,
     )));
+
+    init_workflow_crd().await?;
 
     let (shutdown_tx, _) = tokio::sync::broadcast::channel::<bool>(100);
     let (rev_shutdown_tx, mut rev_shutdown_rx) = tokio::sync::broadcast::channel::<bool>(100);
@@ -103,15 +104,15 @@ async fn main() -> Result<()> {
     OpenOptions::new()
         .create(true)
         .write(true)
-        .open(&Path::new("/tmp/started"))?;
+        .open(Path::new("/tmp/started"))?;
     OpenOptions::new()
         .create(true)
         .write(true)
-        .open(&Path::new("/tmp/alive"))?;
+        .open(Path::new("/tmp/alive"))?;
     OpenOptions::new()
         .create(true)
         .write(true)
-        .open(&Path::new("/tmp/ready"))?;
+        .open(Path::new("/tmp/ready"))?;
 
     shutdown_signal(rev_shutdown_rx.borrow_mut()).await;
 
