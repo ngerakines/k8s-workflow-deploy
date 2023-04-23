@@ -23,6 +23,7 @@ mod k8s_util;
 mod watch_deployment;
 mod watch_namespace;
 mod watch_workflow;
+mod reconcile;
 
 use crate::config::Settings;
 use crate::crd::Workflow;
@@ -30,6 +31,7 @@ use crate::crd_storage::get_workflow_storage;
 use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
 use crate::watch_workflow::{init_workflow_crd, watch_workflow};
+use crate::reconcile::reconcile_loop;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -101,6 +103,20 @@ async fn main() -> Result<()> {
         })
     };
 
+    let reconcile_join_handler = {
+        let r_shutdown_tx = shutdown_tx.clone();
+        let settings = settings.clone();
+        let app_context = app_context.clone();
+        let r_rev_shutdown_tx = rev_shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut loop_rx = r_shutdown_tx.subscribe();
+            if let Err(err) = reconcile_loop(settings.clone(), app_context, &mut loop_rx).await {
+                error!(cause = ?err, "metric_loop error");
+                r_rev_shutdown_tx.send(true).unwrap();
+            }
+        })
+    };
+
     OpenOptions::new()
         .create(true)
         .write(true)
@@ -121,6 +137,7 @@ async fn main() -> Result<()> {
     namespace_join_handler.await?;
     deployment_join_handler.await?;
     workflow_join_handler.await?;
+    reconcile_join_handler.await?;
 
     Ok(())
 }

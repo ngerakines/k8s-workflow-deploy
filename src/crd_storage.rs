@@ -8,8 +8,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::crd::Workflow;
 
 // A known resource is deployment or job in a namespace that is associated with a workflow.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub(crate) struct KnownResource {
+    // The order of attributes matters.
     pub(crate) namespace: String,
     pub(crate) kind: String,
     pub(crate) name: String,
@@ -42,6 +43,7 @@ pub(crate) trait WorkflowStorage: Sync + Send {
     async fn add_workspace(&self, workflow: Workflow) -> Result<()>;
     async fn lastest_workspace(&self, name: String) -> Result<u64>;
     async fn get_workspace(&self, name: String, checksum: Option<u64>) -> Result<Workflow>;
+    async fn get_latest_workspaces(&self) -> Result<Vec<Workflow>>;
 
     // Add a resource to the list of known resources.
     async fn add_resource(
@@ -54,6 +56,7 @@ pub(crate) trait WorkflowStorage: Sync + Send {
     ) -> Result<()>;
     // Remove a resource from the list of known resources.
     async fn remove_resource(&self, namespace: String, kind: String, name: String) -> Result<()>;
+    async fn workflow_resources(&self, workflow: String) -> Result<Vec<KnownResource>>;
 
     // Add a namespace to the list of namespaces that are enabled.
     async fn enable_namespace(&self, name: String) -> Result<()>;
@@ -78,6 +81,10 @@ impl WorkflowStorage for NullWorkflowStorager {
 
     async fn get_workspace(&self, _name: String, _checksum: Option<u64>) -> Result<Workflow> {
         Err(anyhow!("not found"))
+    }
+
+    async fn get_latest_workspaces(&self) -> Result<Vec<Workflow>> {
+        Ok(vec![])
     }
 
     async fn add_resource(
@@ -110,6 +117,10 @@ impl WorkflowStorage for NullWorkflowStorager {
 
     async fn namespace_enabled(&self, _name: String) -> Result<bool> {
         Ok(true)
+    }
+
+    async fn workflow_resources(&self, _workflow: String) -> Result<Vec<KnownResource>> {
+        Ok(vec![])
     }
 }
 
@@ -178,6 +189,18 @@ impl WorkflowStorage for MemoryWorkflowStorager {
         }
     }
 
+    async fn get_latest_workspaces(&self) -> Result<Vec<Workflow>> {
+        let inner_lock = self.inner.lock();
+        let inner = inner_lock.borrow_mut();
+
+        Ok(inner
+            .latest
+            .values()
+            .cloned()
+            .map(|c| inner.workflows.get(&c).unwrap().clone())
+            .collect())
+    }
+
     async fn add_resource(
         &self,
         namespace: String,
@@ -234,6 +257,18 @@ impl WorkflowStorage for MemoryWorkflowStorager {
 
         Ok(inner.namespaces.contains(&name))
     }
+
+    async fn workflow_resources(&self, workflow: String) -> Result<Vec<KnownResource>> {
+        let inner_lock = self.inner.lock();
+        let inner = inner_lock.borrow_mut();
+
+        Ok(inner
+            .resources
+            .iter()
+            .filter(|r| r.workflow == workflow)
+            .cloned()
+            .collect())
+    }
 }
 
 pub(crate) fn get_workflow_storage(workflow_storage_type: &str) -> Box<dyn WorkflowStorage> {
@@ -251,13 +286,13 @@ pub(crate) fn get_workflow_storage(workflow_storage_type: &str) -> Box<dyn Workf
 pub(crate) fn group_resources(
     workflow: Workflow,
     resources: Vec<KnownResource>,
-) -> Vec<(u32, String)> {
+) -> Vec<(u32, String, KnownResource)> {
     let group_annotations = workflow.spec.group_annotations.unwrap_or_default();
     let mut results = HashSet::new();
     for resource in resources {
-        results.insert((1, resource.group_key(&group_annotations)));
+        results.insert((1, resource.group_key(&group_annotations), resource));
     }
-    let mut groups: Vec<(u32, String)> = results.into_iter().collect();
+    let mut groups: Vec<(u32, String, KnownResource)> = results.into_iter().collect();
     groups.sort();
     groups
 }
@@ -325,15 +360,27 @@ mod tests {
         ];
         assert_eq!(
             group_resources(default_workflow, resources.clone()),
-            vec![(1, "foo".to_string()),]
+            vec![
+                (1, "foo".to_string(), resources[0].clone()),
+                (1, "foo".to_string(), resources[2].clone()),
+                (1, "foo".to_string(), resources[1].clone())
+            ]
         );
         assert_eq!(
             group_resources(namespaced_subgroups_workflow, resources.clone()),
-            vec![(1, "foo,canary".to_string()), (1, "foo,main".to_string())]
+            vec![
+                (1, "foo,canary".to_string(), resources[2].clone()),
+                (1, "foo,main".to_string(), resources[0].clone()),
+                (1, "foo,main".to_string(), resources[1].clone())
+            ]
         );
         assert_eq!(
-            group_resources(subgroups_workflow, resources),
-            vec![(1, "canary".to_string()), (1, "main".to_string())]
+            group_resources(subgroups_workflow, resources.clone()),
+            vec![
+                (1, "canary".to_string(), resources[2].clone()),
+                (1, "main".to_string(), resources[0].clone()),
+                (1, "main".to_string(), resources[1].clone())
+            ]
         );
     }
 }
