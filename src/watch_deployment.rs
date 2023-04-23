@@ -52,6 +52,7 @@ pub(crate) async fn watch_deployment(
                                 deployment_kind.clone(),
                                 deployment.name_any(),
                                 workflow.to_string(),
+                                deployment.annotations().clone(),
                             )
                             .await
                         {

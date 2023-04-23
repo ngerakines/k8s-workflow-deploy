@@ -10,8 +10,6 @@ pub(crate) struct Context(pub(crate) Arc<InnerContext>);
 pub(crate) struct InnerContext {
     #[allow(unused)]
     pub(crate) settings: Settings,
-
-    #[allow(unused)]
     pub(crate) workflow_storage: Box<dyn WorkflowStorage>,
 }
 

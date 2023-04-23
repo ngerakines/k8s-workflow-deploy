@@ -2,32 +2,9 @@ use std::env;
 
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
-use tracing::info;
 
 #[derive(Debug, Deserialize, Clone)]
-#[allow(unused)]
-pub(crate) struct Http {
-    pub(crate) enabled: bool,
-    pub(crate) port: u16,
-    pub(crate) address: String,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[allow(unused)]
-pub(crate) struct Https {
-    pub(crate) enabled: bool,
-    pub(crate) port: u16,
-    pub(crate) address: String,
-    pub(crate) certificate: String,
-    pub(crate) certificate_key: String,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[allow(unused)]
-pub struct Settings {
-    pub(crate) http: Http,
-    pub(crate) https: Option<Https>,
-}
+pub struct Settings {}
 
 impl Settings {
     pub(crate) fn new() -> Result<Self, ConfigError> {
@@ -39,9 +16,6 @@ impl Settings {
             .add_source(File::with_name("local").required(false))
             .add_source(Environment::with_prefix("kwd"))
             .build()?;
-
-        info!("http: {:?}", s.get_bool("http.enabled"));
-        info!("https: {:?}", s.get_bool("https.enabled"));
 
         s.try_deserialize()
     }
