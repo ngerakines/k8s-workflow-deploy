@@ -1,0 +1,45 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-deployment
+  namespace: workflow-deployment
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: workflow-deployment
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: workflow-deployment
+    spec:
+      serviceAccountName: workflow-deployment
+      terminationGracePeriodSeconds: 90
+      containers:
+        - name: app
+          image: "localhost:5000/workflow-deployment:latest"
+          imagePullPolicy: Always
+          env:
+          - name: RUST_LOG
+            value: k8s_workflow_deploy=debug,info
+          startupProbe:
+            exec:
+              command: ["cat", "/tmp/started"]
+            failureThreshold: 12
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["cat", "/tmp/alive"]
+            initialDelaySeconds: 5
+            failureThreshold: 12
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["cat", "/tmp/ready"]
+            initialDelaySeconds: 5
+            failureThreshold: 6
+            periodSeconds: 30
