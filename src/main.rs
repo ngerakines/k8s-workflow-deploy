@@ -20,18 +20,18 @@ mod context;
 mod crd;
 mod crd_storage;
 mod k8s_util;
+mod reconcile;
 mod watch_deployment;
 mod watch_namespace;
 mod watch_workflow;
-mod reconcile;
 
 use crate::config::Settings;
 use crate::crd::Workflow;
 use crate::crd_storage::get_workflow_storage;
+use crate::reconcile::reconcile_loop;
 use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
 use crate::watch_workflow::{init_workflow_crd, watch_workflow};
-use crate::reconcile::reconcile_loop;
 
 #[tokio::main]
 async fn main() -> Result<()> {

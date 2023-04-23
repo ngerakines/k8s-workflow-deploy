@@ -29,12 +29,12 @@ pub(crate) async fn watch_workflow(
             }
             kube::runtime::watcher::Event::Applied(workflow) => {
                 if let Err(err) = context
-                .workflow_storage
-                .add_workflow(workflow.clone())
-                .await
-            {
-                error!("Failed to remove workflow: {}", err);
-            }
+                    .workflow_storage
+                    .add_workflow(workflow.clone())
+                    .await
+                {
+                    error!("Failed to remove workflow: {}", err);
+                }
             }
             _ => {}
         }
