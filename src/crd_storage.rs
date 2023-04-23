@@ -40,10 +40,10 @@ impl KnownResource {
 
 #[async_trait]
 pub(crate) trait WorkflowStorage: Sync + Send {
-    async fn add_workspace(&self, workflow: Workflow) -> Result<()>;
-    async fn lastest_workspace(&self, name: String) -> Result<u64>;
-    async fn get_workspace(&self, name: String, checksum: Option<u64>) -> Result<Workflow>;
-    async fn get_latest_workspaces(&self) -> Result<Vec<Workflow>>;
+    async fn add_workflow(&self, workflow: Workflow) -> Result<()>;
+    async fn lastest_workflow(&self, name: String) -> Result<u64>;
+    async fn get_workflow(&self, name: String, checksum: Option<u64>) -> Result<Workflow>;
+    async fn get_latest_workflows(&self) -> Result<Vec<Workflow>>;
 
     // Add a resource to the list of known resources.
     async fn add_resource(
@@ -71,19 +71,19 @@ pub(crate) struct NullWorkflowStorager;
 
 #[async_trait]
 impl WorkflowStorage for NullWorkflowStorager {
-    async fn add_workspace(&self, _workflow: Workflow) -> Result<()> {
+    async fn add_workflow(&self, _workflow: Workflow) -> Result<()> {
         Ok(())
     }
 
-    async fn lastest_workspace(&self, _name: String) -> Result<u64> {
+    async fn lastest_workflow(&self, _name: String) -> Result<u64> {
         Ok(0)
     }
 
-    async fn get_workspace(&self, _name: String, _checksum: Option<u64>) -> Result<Workflow> {
+    async fn get_workflow(&self, _name: String, _checksum: Option<u64>) -> Result<Workflow> {
         Err(anyhow!("not found"))
     }
 
-    async fn get_latest_workspaces(&self) -> Result<Vec<Workflow>> {
+    async fn get_latest_workflows(&self) -> Result<Vec<Workflow>> {
         Ok(vec![])
     }
 
@@ -140,7 +140,7 @@ pub(crate) struct MemoryWorkflowStorager {
 
 #[async_trait]
 impl WorkflowStorage for MemoryWorkflowStorager {
-    async fn add_workspace(&self, workflow: Workflow) -> Result<()> {
+    async fn add_workflow(&self, workflow: Workflow) -> Result<()> {
         let inner_lock = self.inner.lock();
         let mut inner = inner_lock.borrow_mut();
 
@@ -156,7 +156,7 @@ impl WorkflowStorage for MemoryWorkflowStorager {
         Ok(())
     }
 
-    async fn lastest_workspace(&self, name: String) -> Result<u64> {
+    async fn lastest_workflow(&self, name: String) -> Result<u64> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
 
@@ -167,7 +167,7 @@ impl WorkflowStorage for MemoryWorkflowStorager {
         Err(anyhow!("not found"))
     }
 
-    async fn get_workspace(&self, name: String, checksum: Option<u64>) -> Result<Workflow> {
+    async fn get_workflow(&self, name: String, checksum: Option<u64>) -> Result<Workflow> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
 
@@ -189,7 +189,7 @@ impl WorkflowStorage for MemoryWorkflowStorager {
         }
     }
 
-    async fn get_latest_workspaces(&self) -> Result<Vec<Workflow>> {
+    async fn get_latest_workflows(&self) -> Result<Vec<Workflow>> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
 

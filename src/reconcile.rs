@@ -45,7 +45,7 @@ pub (crate) async fn reconcile_loop(
                 info!("Reconcile loop tick");
                 let now = Utc::now();
 
-                let workflows = context.workflow_storage.get_latest_workspaces().await?;
+                let workflows = context.workflow_storage.get_latest_workflows().await?;
 
                 for workflow in workflows {
                     let workflow_name = workflow.name_any();
