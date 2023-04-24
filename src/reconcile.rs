@@ -7,9 +7,9 @@ use tokio::{
     sync::broadcast::Receiver,
     time::{sleep, Instant},
 };
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
-use crate::{config::Settings, context::Context};
+use crate::{action::Action, config::Settings, context::Context};
 
 pub(crate) async fn reconcile_loop(
     _settings: Settings,
@@ -42,6 +42,10 @@ pub(crate) async fn reconcile_loop(
 
                     if now > *reconcile_check {
                         info!("Reconciling workspace {workflow_name}");
+
+                        if let Err(err) = context.action_tx.send(Action::ReconcileWorkflow(workflow.name_any(), now)).await {
+                            error!("Failed to remove workflow: {}", err);
+                        }
 
                         reconcile_checks.insert(workflow_name.clone(), now + Duration::seconds(5));
                     } else {
