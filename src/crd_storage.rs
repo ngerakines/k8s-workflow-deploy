@@ -44,6 +44,7 @@ pub(crate) trait WorkflowStorage: Sync + Send {
     async fn lastest_workflow(&self, name: String) -> Result<u64>;
     async fn get_workflow(&self, name: String, checksum: Option<u64>) -> Result<Workflow>;
     async fn get_latest_workflows(&self) -> Result<Vec<Workflow>>;
+    fn get_workflow_names(&self) -> Result<Vec<String>>;
 
     // Add a resource to the list of known resources.
     async fn add_resource(
@@ -84,6 +85,10 @@ impl WorkflowStorage for NullWorkflowStorager {
     }
 
     async fn get_latest_workflows(&self) -> Result<Vec<Workflow>> {
+        Ok(vec![])
+    }
+
+    fn get_workflow_names(&self) -> Result<Vec<String>> {
         Ok(vec![])
     }
 
@@ -199,6 +204,13 @@ impl WorkflowStorage for MemoryWorkflowStorager {
             .cloned()
             .map(|c| inner.workflows.get(&c).unwrap().clone())
             .collect())
+    }
+
+    fn get_workflow_names(&self) -> Result<Vec<String>> {
+        let inner_lock = self.inner.lock();
+        let inner = inner_lock.borrow_mut();
+
+        Ok(inner.latest.keys().cloned().collect())
     }
 
     async fn add_resource(
