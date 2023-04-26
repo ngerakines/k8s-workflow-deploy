@@ -20,14 +20,12 @@ pub(crate) struct WorkflowStepActionTarget {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub(crate) struct WorkflowStepAction {
     pub(crate) action: String,
-    pub(crate) position: Option<u32>,
-    pub(crate) targets: Option<Vec<WorkflowStepActionTarget>>,
+    pub(crate) targets: Vec<WorkflowStepActionTarget>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub(crate) struct WorkflowStep {
-    pub(crate) position: Option<u32>,
-    pub(crate) actions: Option<Vec<WorkflowStepAction>>,
+    pub(crate) actions: Vec<WorkflowStepAction>,
 }
 
 #[derive(CustomResource, Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -38,8 +36,8 @@ pub(crate) struct WorkflowStep {
     plural = "workflows"
 )]
 pub(crate) struct WorkflowSpec {
+    pub(crate) namespaces: Vec<String>,
     pub(crate) version: String,
-    pub(crate) group_annotations: Option<Vec<String>>,
     pub(crate) debounce: Option<u32>,
     pub(crate) supression: Option<Vec<SupressionRange>>,
     pub(crate) steps: Option<Vec<WorkflowStep>>,
@@ -49,16 +47,23 @@ impl Workflow {
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
         hasher.write(format!("version={}", self.spec.version).as_bytes());
-        for annotation in self.spec.group_annotations.as_ref().unwrap_or(&vec![]) {
-            hasher.write(format!("group_annotations={}", annotation).as_bytes());
+
+        let mut namespaces = self.spec.namespaces.clone();
+        namespaces.sort();
+        for namespace in namespaces {
+            hasher.write(format!("namespace={namespace}").as_bytes());
         }
+
         hasher.write(format!("debounce={}", self.spec.debounce.unwrap_or_default()).as_bytes());
+
         for supression in self.spec.supression.as_ref().unwrap_or(&vec![]) {
             hasher.write(format!("supression={}", supression.checksum()).as_bytes());
         }
+
         for step in self.spec.steps.as_ref().unwrap_or(&vec![]) {
             hasher.write(format!("step={}", step.checksum()).as_bytes());
         }
+
         hasher.finish()
     }
 }
@@ -81,8 +86,7 @@ impl SupressionRange {
 impl WorkflowStep {
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
-        hasher.write(format!("position={}", self.position.unwrap_or_default()).as_bytes());
-        for action in self.actions.as_ref().unwrap_or(&vec![]) {
+        for action in self.actions.iter() {
             hasher.write(format!("step={}", action.checksum()).as_bytes());
         }
         hasher.finish()
@@ -92,8 +96,7 @@ impl WorkflowStep {
 impl WorkflowStepAction {
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
-        hasher.write(format!("position={}", self.position.unwrap_or_default()).as_bytes());
-        for target in self.targets.as_ref().unwrap_or(&vec![]) {
+        for target in self.targets.iter() {
             hasher.write(format!("step={}", target.checksum()).as_bytes());
         }
         hasher.finish()
@@ -123,12 +126,12 @@ mod tests {
             metadata: Default::default(),
             spec: WorkflowSpec {
                 version: "v1".to_string(),
-                group_annotations: None,
+                namespaces: vec!["default".to_string()],
                 debounce: None,
                 supression: None,
                 steps: None,
             },
         };
-        assert_eq!(workflow.checksum(), 4849047191342515765);
+        assert_eq!(workflow.checksum(), 8856693534762849072);
     }
 }

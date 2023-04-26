@@ -1,0 +1,7 @@
+---
+apiVersion: workflow-deploy.ngerakines.me/v1alpha
+kind: Workflow
+metadata:
+  name: foo
+spec:
+  version: "1.0.0-2"

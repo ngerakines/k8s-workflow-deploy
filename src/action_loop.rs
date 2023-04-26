@@ -9,7 +9,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::{action::Action, config::Settings, context::Context, crd_storage::group_resources};
+use crate::{action::Action, config::Settings, context::Context};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct WorkflowJob {
@@ -22,15 +22,7 @@ struct WorkflowJob {
 
 impl WorkflowJob {
     fn should_retain(&self, workflow: &String) -> bool {
-        if self.in_flight {
-            return true;
-        }
-
-        if self.workflow != *workflow {
-            return true;
-        }
-
-        false
+        self.in_flight || self.workflow != *workflow
     }
 }
 
@@ -42,7 +34,7 @@ pub(crate) async fn action_loop(
 ) -> Result<()> {
     info!("action loop started");
 
-    let one_second = Duration::seconds(1).to_std().unwrap();
+    let one_second = Duration::seconds(3).to_std().unwrap();
 
     let sleeper = sleep(one_second);
     tokio::pin!(sleeper);
@@ -103,24 +95,15 @@ pub(crate) async fn action_loop(
                         }
                         let workflow = workflow_res.unwrap();
 
-                        let workflow_resources_res = context.workflow_storage.workflow_resources(workflow_name.clone()).await;
-                        if workflow_resources_res.is_err() {
-                            error!("unable to get workflow resources: {:?}", val);
-                            continue 'outer;
-                        }
-                        let workflow_resources = workflow_resources_res.unwrap();
-
-                        let resource_groups: HashSet<String> = group_resources(workflow, workflow_resources).iter().map(|x| x.1.clone()).collect::<HashSet<String>>();
-
                         // 3. Remove any items from the queue that are not in-flight and have the same workflow name and have a different workflow checksum
                         workflow_queue.retain(|x| x.should_retain(&workflow_name));
 
                         // 4. Add all of the groups to the queue
-                        resource_groups.iter().for_each(|group| {
+                        workflow.spec.namespaces.iter().for_each(|namespace| {
                             workflow_queue.insert(WorkflowJob {
                                 workflow: workflow_name.clone(),
                                 checksum: latest_workflow,
-                                group: group.clone(),
+                                group: namespace.clone(),
                                 after: now + Duration::seconds(15),
                                 in_flight: false,
                             });
