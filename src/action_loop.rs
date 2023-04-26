@@ -9,7 +9,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::{action::Action, config::Settings, context::Context, crd_storage::group_resources};
+use crate::{action::Action, config::Settings, context::Context};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct WorkflowJob {
@@ -20,17 +20,16 @@ struct WorkflowJob {
     in_flight: bool,
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+enum WorkflowAction {
+    Started(),
+    UpdateDeployment(String, Vec<(String, String)>),
+    WaitDeploymentReady(String),
+}
+
 impl WorkflowJob {
     fn should_retain(&self, workflow: &String) -> bool {
-        if self.in_flight {
-            return true;
-        }
-
-        if self.workflow != *workflow {
-            return true;
-        }
-
-        false
+        self.in_flight || self.workflow != *workflow
     }
 }
 
@@ -42,7 +41,7 @@ pub(crate) async fn action_loop(
 ) -> Result<()> {
     info!("action loop started");
 
-    let one_second = Duration::seconds(1).to_std().unwrap();
+    let one_second = Duration::seconds(3).to_std().unwrap();
 
     let sleeper = sleep(one_second);
     tokio::pin!(sleeper);
@@ -103,24 +102,15 @@ pub(crate) async fn action_loop(
                         }
                         let workflow = workflow_res.unwrap();
 
-                        let workflow_resources_res = context.workflow_storage.workflow_resources(workflow_name.clone()).await;
-                        if workflow_resources_res.is_err() {
-                            error!("unable to get workflow resources: {:?}", val);
-                            continue 'outer;
-                        }
-                        let workflow_resources = workflow_resources_res.unwrap();
-
-                        let resource_groups: HashSet<String> = group_resources(workflow, workflow_resources).iter().map(|x| x.1.clone()).collect::<HashSet<String>>();
-
                         // 3. Remove any items from the queue that are not in-flight and have the same workflow name and have a different workflow checksum
                         workflow_queue.retain(|x| x.should_retain(&workflow_name));
 
                         // 4. Add all of the groups to the queue
-                        resource_groups.iter().for_each(|group| {
+                        workflow.spec.namespaces.iter().for_each(|namespace| {
                             workflow_queue.insert(WorkflowJob {
                                 workflow: workflow_name.clone(),
                                 checksum: latest_workflow,
-                                group: group.clone(),
+                                group: namespace.clone(),
                                 after: now + Duration::seconds(15),
                                 in_flight: false,
                             });
@@ -211,6 +201,118 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
         workflow_job.checksum,
         workflow_job.group.clone()
     );
+
+    let workflow = context
+        .workflow_storage
+        .get_workflow(workflow_job.workflow.clone(), Some(workflow_job.checksum))
+        .await?;
+
+    let one_second = Duration::seconds(1).to_std().unwrap();
+
+    let sleeper = sleep(one_second);
+    tokio::pin!(sleeper);
+
+    let mut work_queue: Vec<WorkflowAction> = vec![];
+
+    // Nick: My thinking is that it's easier to create a big list of everything
+    // that needs to be done for a workflow in the context of a group
+    // (namespace) up front. The alternative would be to parse the workflow
+    // spec every loop to see what's next. The added bonus of doing it this way
+    // is that I can also populate history as each thing is completed.
+    for step in workflow.spec.steps {
+        for action in step.actions {
+            if action.action == *"update_deployment" {
+                for target in &action.targets {
+                    work_queue.push(WorkflowAction::UpdateDeployment(
+                        target.name.clone(),
+                        vec![],
+                    ));
+                }
+                for target in &action.targets {
+                    work_queue.push(WorkflowAction::WaitDeploymentReady(target.name.clone()));
+                }
+            }
+        }
+    }
+
+    let mut history: Vec<(WorkflowAction, DateTime<Utc>)> =
+        vec![(WorkflowAction::Started(), Utc::now())];
+
+    'working: loop {
+        tokio::select! {
+            () = &mut sleeper => {
+
+                if work_queue.is_empty() {
+                    info!("action_workflow_updated queue is empty");
+                    break 'working;
+                }
+
+                let now = Utc::now();
+
+                match history[0].clone() {
+                    (WorkflowAction::Started(), _) => {}
+                    (WorkflowAction::WaitDeploymentReady(_), _) => { }
+                    (WorkflowAction::UpdateDeployment(deployment_name, _), occurred_at) => {
+                        // TODO: Make this configurable.
+                        if now > occurred_at + Duration::seconds(3) {
+                            info!("Waiting for more time to pass after updating deployment {}", &deployment_name);
+                            sleeper.as_mut().reset(Instant::now() + one_second);
+                            continue 'working;
+                        }
+                    }
+                }
+
+                match work_queue[0] {
+                    WorkflowAction::Started() => {
+                        work_queue.remove(0);
+                    }
+                    WorkflowAction::UpdateDeployment(ref name, ref _containers) => {
+                        info!("action_workflow_updated UpdateDeployment: {}", name);
+
+                        // TODO: Update the deployment.
+
+                        history.push((work_queue[0].clone(), now));
+                        work_queue.remove(0);
+                    }
+                    WorkflowAction::WaitDeploymentReady(ref name) => {
+                        info!("action_workflow_updated WaitDeploymentReady: {}", name);
+
+                        let last_deployed_at = history.iter().rev().find(|x| match x.0 { WorkflowAction::UpdateDeployment(ref update_deployment_name, _) => update_deployment_name == name, _ => false }).map(|x| x.1);
+                        if last_deployed_at.is_none() {
+                            error!("WaitDeploymentReady failed: No deployment found for {}", name);
+                            break 'working;
+                        }
+                        let last_deployed_at = last_deployed_at.unwrap();
+
+                        if now < last_deployed_at + Duration::seconds(3) {
+                            info!("Waiting for more time to pass after updating deployment {}", &name);
+                            sleeper.as_mut().reset(Instant::now() + one_second);
+                            continue 'working;
+                        }
+
+                        let deployment_is_ready = true;
+
+                        if !deployment_is_ready && now < last_deployed_at + Duration::seconds(30) {
+                            info!("Waiting for more time to pass after updating deployment {}", &name);
+                            sleeper.as_mut().reset(Instant::now() + one_second);
+                            continue 'working;
+                        }
+
+                        // 1. If we aren't ready to wait yet then continue
+                        // 2. Get the status of the deployment
+                        // 3. Continue if the status is not ready and we have not reached the max wait time
+                        // 4. Error if the status is not ready and we have passed the max wait time
+
+                        history.push((work_queue[0].clone(), now));
+                        work_queue.remove(0);
+                    }
+                }
+
+                sleeper.as_mut().reset(Instant::now() + one_second);
+                trace!("action_workflow_updated tick");
+            }
+        }
+    }
 
     if let Err(err) = context
         .action_tx
