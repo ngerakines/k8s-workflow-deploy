@@ -14,7 +14,7 @@ pub(crate) struct SupressionRange {
 pub(crate) struct WorkflowStepActionTarget {
     pub(crate) resource: String,
     pub(crate) name: String,
-    pub(crate) containers: Option<Vec<String>>,
+    pub(crate) containers: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -107,7 +107,7 @@ impl WorkflowStepActionTarget {
     pub(crate) fn checksum(&self) -> u64 {
         let mut hasher = FnvHasher::default();
         hasher.write(format!("resource={} name={}", self.resource, self.name).as_bytes());
-        let mut containers = self.containers.clone().unwrap_or(vec![]);
+        let mut containers = self.containers.clone();
         containers.sort();
         for container in containers {
             hasher.write(format!("container={}", container).as_bytes());

@@ -5,3 +5,13 @@ metadata:
   name: foo
 spec:
   version: "1.0.0-2"
+  debounce: 90
+  namespaces: ["foo"]
+  supression: []
+  steps:
+  - actions:
+    - action: foo
+      targets:
+      - resource: Deployment
+        name: foo
+        containers: ["app"]

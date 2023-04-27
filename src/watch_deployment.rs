@@ -39,6 +39,7 @@ pub(crate) async fn watch_deployment(
                 }
             }
             kube::runtime::watcher::Event::Applied(deployment) => {
+                info!("deployment status: {:?}", deployment.status);
                 let namespace = deployment.namespace().unwrap_or("default".to_string());
                 match deployment
                     .annotations()

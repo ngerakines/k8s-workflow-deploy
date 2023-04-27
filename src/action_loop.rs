@@ -2,6 +2,11 @@ use std::{borrow::BorrowMut, collections::HashSet};
 
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
+use k8s_openapi::api::apps::v1::Deployment;
+use kube::{
+    api::{Patch, PatchParams},
+    Api, Client,
+};
 use tokio::{
     sync::broadcast::Receiver,
     sync::mpsc::Receiver as ActionReceiver,
@@ -225,7 +230,11 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                 for target in &action.targets {
                     work_queue.push(WorkflowAction::UpdateDeployment(
                         target.name.clone(),
-                        vec![],
+                        target
+                            .containers
+                            .iter()
+                            .map(|container| (container.clone(), workflow.spec.version.clone()))
+                            .collect(),
                     ));
                 }
                 for target in &action.targets {
@@ -238,6 +247,14 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
     let mut history: Vec<(WorkflowAction, DateTime<Utc>)> =
         vec![(WorkflowAction::Started(), Utc::now())];
 
+    let client = Client::try_default()
+        .await
+        .map_err(anyhow::Error::msg)
+        .unwrap();
+
+    let deployment_client: Api<Deployment> =
+        Api::namespaced(client.clone(), &workflow_job.group.clone());
+
     'working: loop {
         tokio::select! {
             () = &mut sleeper => {
@@ -249,27 +266,62 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
 
                 let now = Utc::now();
 
-                match history[0].clone() {
-                    (WorkflowAction::Started(), _) => {}
-                    (WorkflowAction::WaitDeploymentReady(_), _) => { }
-                    (WorkflowAction::UpdateDeployment(deployment_name, _), occurred_at) => {
-                        // TODO: Make this configurable.
-                        if now > occurred_at + Duration::seconds(3) {
-                            info!("Waiting for more time to pass after updating deployment {}", &deployment_name);
-                            sleeper.as_mut().reset(Instant::now() + one_second);
-                            continue 'working;
-                        }
-                    }
-                }
+                // match history[0].clone() {
+                //     (WorkflowAction::Started(), _) => {}
+                //     (WorkflowAction::WaitDeploymentReady(_), _) => { }
+                //     (WorkflowAction::UpdateDeployment(deployment_name, _), occurred_at) => {
+                //         // TODO: Make this configurable.
+                //         if now > occurred_at + Duration::seconds(3) {
+                //             info!("Waiting for more time to pass after updating deployment {}", &deployment_name);
+                //             sleeper.as_mut().reset(Instant::now() + one_second);
+                //             continue 'working;
+                //         }
+                //     }
+                // }
 
                 match work_queue[0] {
                     WorkflowAction::Started() => {
                         work_queue.remove(0);
                     }
-                    WorkflowAction::UpdateDeployment(ref name, ref _containers) => {
+                    WorkflowAction::UpdateDeployment(ref name, ref containers) => {
                         info!("action_workflow_updated UpdateDeployment: {}", name);
 
                         // TODO: Update the deployment.
+                        let deployment = deployment_client.get_opt(name).await;
+                        if let Err(err) = deployment {
+                            error!("UpdateDeployment unable to get deployment {}: {}", name, err);
+                            break 'working;
+                        }
+                        let deployment = deployment.unwrap();
+                        if deployment.is_none() {
+                            error!("UpdateDeployment unable to get deployment {}: not found", name);
+                            break 'working;
+                        }
+
+                        let mut json_patch = json_patch::Patch(vec![]);
+                        for (index, container) in deployment.unwrap_or_default().spec.unwrap_or_default().template.spec.unwrap_or_default().containers.iter().enumerate() {
+                            info!("container: {}", container.name);
+                            if let Some(version) = containers.iter().find(|x| x.0 == container.name).map(|x| x.1.clone()) {
+                                json_patch.0.push(json_patch::PatchOperation::Replace(
+                                    json_patch::ReplaceOperation{
+                                        path: format!("/spec/template/spec/containers/{index}/image"),
+                                        value:serde_json::to_value(version).unwrap()
+                                    },
+                                ));
+                            }
+                        }
+
+                        let patch_res = deployment_client
+                        .patch(
+                            name,
+                            &PatchParams::default(),
+                            &Patch::Json::<()>(json_patch),
+                        )
+                        .await;
+                        if let Err(err) = patch_res {
+                            error!("UpdateDeployment patching deployment {} failed: {}", name, err);
+                            break 'working;
+                        }
 
                         history.push((work_queue[0].clone(), now));
                         work_queue.remove(0);
@@ -284,24 +336,29 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                         }
                         let last_deployed_at = last_deployed_at.unwrap();
 
-                        if now < last_deployed_at + Duration::seconds(3) {
+                        // 1. If we aren't ready to wait yet then continue
+                        if now < last_deployed_at + Duration::seconds(5) {
                             info!("Waiting for more time to pass after updating deployment {}", &name);
                             sleeper.as_mut().reset(Instant::now() + one_second);
                             continue 'working;
                         }
 
+                        // 2. Get the status of the deployment
                         let deployment_is_ready = true;
 
-                        if !deployment_is_ready && now < last_deployed_at + Duration::seconds(30) {
+                        // 3. Continue if the status is not ready and we have not reached the max wait time
+                        if !deployment_is_ready && now < last_deployed_at + Duration::seconds(90) {
                             info!("Waiting for more time to pass after updating deployment {}", &name);
                             sleeper.as_mut().reset(Instant::now() + one_second);
                             continue 'working;
                         }
 
-                        // 1. If we aren't ready to wait yet then continue
-                        // 2. Get the status of the deployment
-                        // 3. Continue if the status is not ready and we have not reached the max wait time
                         // 4. Error if the status is not ready and we have passed the max wait time
+                        if !deployment_is_ready && now > last_deployed_at + Duration::seconds(30) {
+                            error!("WaitDeploymentReady failed: Deployment {} did not become ready within wait period", name);
+                            sleeper.as_mut().reset(Instant::now() + one_second);
+                            break 'working;
+                        }
 
                         history.push((work_queue[0].clone(), now));
                         work_queue.remove(0);
