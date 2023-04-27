@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -16,6 +17,7 @@ pub(crate) struct KnownResource {
     pub(crate) name: String,
     pub(crate) workflow: String,
     pub(crate) annotations: BTreeMap<String, String>,
+    pub(crate) ready: bool,
 }
 
 #[async_trait]
@@ -34,6 +36,7 @@ pub(crate) trait WorkflowStorage: Sync + Send {
         name: String,
         workflow: String,
         annotations: BTreeMap<String, String>,
+        ready: bool,
     ) -> Result<()>;
     // Remove a resource from the list of known resources.
     async fn remove_resource(&self, namespace: String, kind: String, name: String) -> Result<()>;
@@ -45,6 +48,8 @@ pub(crate) trait WorkflowStorage: Sync + Send {
     async fn disable_namespace(&self, name: String) -> Result<()>;
     // Check if a namespace is enabled. This will be called whenever a known resource has an action.
     async fn namespace_enabled(&self, name: String) -> Result<bool>;
+
+    fn is_resource_ready(&self, namespace: String, kind: String, name: String) -> bool;
 }
 
 #[derive(Default)]
@@ -79,6 +84,7 @@ impl WorkflowStorage for NullWorkflowStorager {
         _name: String,
         _workflow: String,
         _annotations: BTreeMap<String, String>,
+        _ready: bool,
     ) -> Result<()> {
         Ok(())
     }
@@ -107,6 +113,10 @@ impl WorkflowStorage for NullWorkflowStorager {
     async fn workflow_resources(&self, _workflow: String) -> Result<Vec<KnownResource>> {
         Ok(vec![])
     }
+
+    fn is_resource_ready(&self, namespace: String, kind: String, name: String) -> bool {
+        false
+    }
 }
 
 #[derive(Default)]
@@ -128,34 +138,28 @@ impl WorkflowStorage for MemoryWorkflowStorager {
     async fn add_workflow(&self, workflow: Workflow) -> Result<()> {
         let inner_lock = self.inner.lock();
         let mut inner = inner_lock.borrow_mut();
-
         if workflow.metadata.name.is_none() {
             return Err(anyhow!("workflow name is required"));
         }
         let name = workflow.metadata.name.clone().unwrap();
         let checksum = workflow.checksum();
-
         inner.workflows.insert(checksum, workflow);
         inner.latest.insert(name, checksum);
-
         Ok(())
     }
 
     async fn lastest_workflow(&self, name: String) -> Result<u64> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
-
         if let Some(checksum) = inner.latest.get(&name) {
             return Ok(*checksum);
         }
-
         Err(anyhow!("not found"))
     }
 
     async fn get_workflow(&self, name: String, checksum: Option<u64>) -> Result<Workflow> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
-
         match checksum {
             Some(checksum) => {
                 if let Some(workflow) = inner.workflows.get(&checksum) {
@@ -177,7 +181,6 @@ impl WorkflowStorage for MemoryWorkflowStorager {
     async fn get_latest_workflows(&self) -> Result<Vec<Workflow>> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
-
         Ok(inner
             .latest
             .values()
@@ -189,7 +192,6 @@ impl WorkflowStorage for MemoryWorkflowStorager {
     fn get_workflow_names(&self) -> Result<Vec<String>> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
-
         Ok(inner.latest.keys().cloned().collect())
     }
 
@@ -200,36 +202,34 @@ impl WorkflowStorage for MemoryWorkflowStorager {
         name: String,
         workflow: String,
         annotations: BTreeMap<String, String>,
+        ready: bool,
     ) -> Result<()> {
         let inner_lock = self.inner.lock();
         let mut inner = inner_lock.borrow_mut();
-
+        info!("add resource: {} {} {} {}", namespace, kind, name, ready);
         inner.resources.insert(KnownResource {
             namespace,
             kind,
             name,
             workflow,
             annotations,
+            ready,
         });
-
         Ok(())
     }
 
     async fn remove_resource(&self, namespace: String, kind: String, name: String) -> Result<()> {
         let inner_lock = self.inner.lock();
         let mut inner = inner_lock.borrow_mut();
-
         inner
             .resources
             .retain(|r| !(r.namespace == namespace && r.kind == kind && r.name == name));
-
         Ok(())
     }
 
     async fn enable_namespace(&self, name: String) -> Result<()> {
         let inner_lock = self.inner.lock();
         let mut inner = inner_lock.borrow_mut();
-
         inner.namespaces.insert(name);
         Ok(())
     }
@@ -237,23 +237,19 @@ impl WorkflowStorage for MemoryWorkflowStorager {
     async fn disable_namespace(&self, name: String) -> Result<()> {
         let inner_lock = self.inner.lock();
         let mut inner = inner_lock.borrow_mut();
-
         inner.namespaces.remove(&name);
-
         Ok(())
     }
 
     async fn namespace_enabled(&self, name: String) -> Result<bool> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
-
         Ok(inner.namespaces.contains(&name))
     }
 
     async fn workflow_resources(&self, workflow: String) -> Result<Vec<KnownResource>> {
         let inner_lock = self.inner.lock();
         let inner = inner_lock.borrow_mut();
-
         Ok(inner
             .resources
             .iter()
@@ -261,15 +257,22 @@ impl WorkflowStorage for MemoryWorkflowStorager {
             .cloned()
             .collect())
     }
+
+    fn is_resource_ready(&self, namespace: String, kind: String, name: String) -> bool {
+        let inner_lock = self.inner.lock();
+        let inner = inner_lock.borrow_mut();
+        inner
+            .resources
+            .iter()
+            .any(|r| r.namespace == namespace && r.kind == kind && r.name == name && r.ready)
+    }
 }
 
 pub(crate) fn get_workflow_storage(workflow_storage_type: &str) -> Box<dyn WorkflowStorage> {
     match workflow_storage_type {
         #[cfg(debug_assertions)]
         "null" => Box::<NullWorkflowStorager>::default() as Box<dyn WorkflowStorage>,
-
         "memory" => Box::<MemoryWorkflowStorager>::default() as Box<dyn WorkflowStorage>,
-
         _ => panic!("Unknown workflow storage type: {workflow_storage_type}"),
     }
 }

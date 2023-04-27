@@ -33,11 +33,11 @@ spec:
           imagePullPolicy: Always
           env:
           - name: STARTED_AFTER
-            value: "15s"
+            value: "5s"
           - name: READY_AFTER
-            value: "30s"
+            value: "10s"
           ports:
-          - containerPort: 8080
+          - containerPort: 8000
             name: http
             protocol: TCP
           startupProbe:

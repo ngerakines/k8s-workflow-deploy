@@ -10,7 +10,7 @@ spec:
   supression: []
   steps:
   - actions:
-    - action: foo
+    - action: update_deployment
       targets:
       - resource: Deployment
         name: foo

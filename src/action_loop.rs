@@ -217,7 +217,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
     let sleeper = sleep(one_second);
     tokio::pin!(sleeper);
 
-    let mut work_queue: Vec<WorkflowAction> = vec![];
+    let mut work_queue: Vec<WorkflowAction> = vec![WorkflowAction::Started()];
 
     // Nick: My thinking is that it's easier to create a big list of everything
     // that needs to be done for a workflow in the context of a group
@@ -254,6 +254,8 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
 
     let deployment_client: Api<Deployment> =
         Api::namespaced(client.clone(), &workflow_job.group.clone());
+
+    info!("Starting work loop with queue: {:?}", work_queue);
 
     'working: loop {
         tokio::select! {
@@ -302,12 +304,50 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                         for (index, container) in deployment.unwrap_or_default().spec.unwrap_or_default().template.spec.unwrap_or_default().containers.iter().enumerate() {
                             info!("container: {}", container.name);
                             if let Some(version) = containers.iter().find(|x| x.0 == container.name).map(|x| x.1.clone()) {
-                                json_patch.0.push(json_patch::PatchOperation::Replace(
-                                    json_patch::ReplaceOperation{
-                                        path: format!("/spec/template/spec/containers/{index}/image"),
-                                        value:serde_json::to_value(version).unwrap()
-                                    },
-                                ));
+
+                                let container_image = container.clone().image.map(|inner| {
+                                    let mut result = String::new();
+                                    if let Some((parts, _)) = inner.rsplit_once(':') {
+                                        result.push_str(parts);
+                                        result.push_str(":");
+                                        result.push_str(&version);
+                                    }
+                                    result
+                                });
+
+                                // let container_image = {
+                                //     let current_container_image =  container.clone().image.unwrap_or_default();
+                                //     // if current_container_image.contains(':') {
+                                //     //     current_container_image.rsplit_once(':').unwrap_or_default().0.to_string()
+                                //     // } else {
+                                //     //     current_container_image
+                                //     // }
+                                //     let current_version = current_container_image.rsplit_once(':').unwrap_or_default().1.to_string();
+                                //     if !current_version.is_empty() {
+                                //         let current_version = current_container_image.rsplit_once(':').unwrap_or_default().1.to_string();
+                                //         Some("".to_string())
+                                //     } else {
+                                //         None
+                                //     }
+                                //     // if let Some(image) = container.image {
+
+                                //     //     image.rsplit_once(':').unwrap().1.to_string()
+                                //     // } else {
+                                //     //     "".to_string()
+                                //     // }
+                                //     // None
+                                // };
+
+                                // // .rsplit_once(2, ':').next().unwrap();
+
+                                if container_image.is_some() {
+                                    json_patch.0.push(json_patch::PatchOperation::Replace(
+                                        json_patch::ReplaceOperation{
+                                            path: format!("/spec/template/spec/containers/{index}/image"),
+                                            value:serde_json::to_value(container_image.unwrap()).unwrap()
+                                        },
+                                    ));
+                                }
                             }
                         }
 
@@ -344,7 +384,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                         }
 
                         // 2. Get the status of the deployment
-                        let deployment_is_ready = true;
+                        let deployment_is_ready = context.workflow_storage.is_resource_ready(workflow_job.workflow.clone(), "apps/v1;Deployment".to_string(), name.to_string());
 
                         // 3. Continue if the status is not ready and we have not reached the max wait time
                         if !deployment_is_ready && now < last_deployed_at + Duration::seconds(90) {
@@ -370,6 +410,8 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
             }
         }
     }
+
+    info!("Concluded work queue with history: {:?}", history);
 
     if let Err(err) = context
         .action_tx
