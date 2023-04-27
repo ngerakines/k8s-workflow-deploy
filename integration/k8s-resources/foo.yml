@@ -1,0 +1,55 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: foo
+  annotations:
+    workflow-deploy.ngerakines.me/enabled: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: foo
+  namespace: foo
+  annotations:
+    workflow-deploy.ngerakines.me/workflow: foo
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: foo
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: foo
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: app
+          image: "localhost:5000/okay:1.0.0-1"
+          imagePullPolicy: Always
+          env:
+          - name: STARTED_AFTER
+            value: "5s"
+          - name: READY_AFTER
+            value: "10s"
+          ports:
+          - containerPort: 8000
+            name: http
+            protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /started
+              port: http
+            failureThreshold: 12
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            failureThreshold: 6
+            periodSeconds: 30

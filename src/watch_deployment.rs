@@ -39,7 +39,22 @@ pub(crate) async fn watch_deployment(
                 }
             }
             kube::runtime::watcher::Event::Applied(deployment) => {
+                info!("deployment status: {:?}", deployment.status);
                 let namespace = deployment.namespace().unwrap_or("default".to_string());
+
+                let ready = deployment
+                    .clone()
+                    .status
+                    .map(|status| {
+                        status.conditions.iter().fold(true, |acc, conditions| {
+                            acc && conditions
+                                .iter()
+                                .fold(true, |acc, condition| acc && condition.status == "True")
+                        })
+                    })
+                    .unwrap_or_default();
+                info!("deployment ready: {}", ready);
+
                 match deployment
                     .annotations()
                     .get("workflow-deploy.ngerakines.me/workflow")
@@ -53,6 +68,7 @@ pub(crate) async fn watch_deployment(
                                 deployment.name_any(),
                                 workflow.to_string(),
                                 deployment.annotations().clone(),
+                                ready,
                             )
                             .await
                         {

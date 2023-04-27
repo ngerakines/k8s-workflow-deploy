@@ -18,7 +18,7 @@ pub(crate) async fn reconcile_loop(
 ) -> Result<()> {
     info!("reconcile loop started");
 
-    let interval = Duration::seconds(5).to_std()?;
+    let interval = Duration::seconds(30).to_std()?;
 
     let sleeper = sleep(interval);
     tokio::pin!(sleeper);
@@ -47,7 +47,7 @@ pub(crate) async fn reconcile_loop(
                             error!("Failed to remove workflow: {}", err);
                         }
 
-                        reconcile_checks.insert(workflow_name.clone(), now + Duration::seconds(5));
+                        reconcile_checks.insert(workflow_name.clone(), now + Duration::seconds(90));
                     } else {
                         debug!("Skipping reconcile for {workflow_name}: {now} <= {reconcile_check}");
                     }

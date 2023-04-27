@@ -70,7 +70,7 @@ pub(crate) async fn init_workflow_crd() -> Result<()> {
 
     let dp = DeleteParams::default();
     let _ = crds
-        .delete("workflow-deploy.ngerakines.me", &dp)
+        .delete("workflows.workflow-deploy.ngerakines.me", &dp)
         .await
         .map(|res| {
             res.map_left(|o| {

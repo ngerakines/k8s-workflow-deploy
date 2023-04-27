@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
         action_tx.clone(),
     )));
 
-    init_workflow_crd().await?;
+    // init_workflow_crd().await?;
 
     let (shutdown_tx, _) = tokio::sync::broadcast::channel::<bool>(100);
     let (rev_shutdown_tx, mut rev_shutdown_rx) = tokio::sync::broadcast::channel::<bool>(100);

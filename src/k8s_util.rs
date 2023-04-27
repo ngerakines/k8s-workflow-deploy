@@ -17,3 +17,17 @@ pub(crate) fn annotation_maybe_int(
         .map(|value| value.parse::<u32>().map(Some).unwrap_or_else(|_| None))
         .unwrap_or(None)
 }
+
+pub(crate) fn replace_last(
+    data: Option<String>,
+    search: String,
+    replace: String,
+) -> Option<String> {
+    data.map(|inner| {
+        let mut parts = inner.rsplitn(2, &search);
+        let mut result = String::new();
+        result.push_str(parts.next().unwrap_or_default());
+        result.push_str(&replace);
+        result
+    })
+}

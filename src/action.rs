@@ -4,4 +4,5 @@ use chrono::{DateTime, Utc};
 pub enum Action {
     WorkflowUpdated(String, DateTime<Utc>),
     ReconcileWorkflow(String, DateTime<Utc>),
+    WorkflowJobFinished(String, String),
 }
