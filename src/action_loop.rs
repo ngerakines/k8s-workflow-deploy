@@ -14,7 +14,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::{action::Action, config::Settings, context::Context};
+use crate::{action::Action, config::Settings, context::Context, k8s_util::replace_last};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct WorkflowJob {
@@ -51,9 +51,7 @@ pub(crate) async fn action_loop(
     let sleeper = sleep(one_second);
     tokio::pin!(sleeper);
 
-    // workflow_queue is a an unordered set of (workflow name, workflow checksum, group name, in flight) tuples. It is used to track which workflow deployment groups are in flight.
     let mut workflow_queue: HashSet<WorkflowJob> = HashSet::new();
-    // let mut in_flight: HashMap<(String, String), JoinHandle<()>> = HashMap::new();
 
     'outer: loop {
         let now = Utc::now();
@@ -78,17 +76,25 @@ pub(crate) async fn action_loop(
 
                 match val.clone() {
                     Action::WorkflowJobFinished(workflow_name, group) => {
-                        // let handle_maybe = in_flight.get(&(workflow_name.clone(), group.clone()));
-                        // if handle_maybe.is_none() {
-                        //     error!("got workflow job finished for workflow: {:?} group: {:?} but no handle was found", workflow_name, group);
-                        //     continue 'outer;
-                        // }
-                        // let handle: JoinHandle<()> = handle_maybe.unwrap();
+                        context
+                        .metrics
+                        .count_with_tags("action_loop.event", 1)
+                        .with_tag("event", "workflow_job_finished")
+                        .with_tag("workflow_name", workflow_name.as_str())
+                        .with_tag("workflow_group", group.as_str())
+                        .send();
 
                         workflow_queue.retain(|x| x.workflow != workflow_name && x.group != group);
 
                     }
                     Action::WorkflowUpdated(workflow_name, _) => {
+                        context
+                        .metrics
+                        .count_with_tags("action_loop.event", 1)
+                        .with_tag("event", "workflow_updated")
+                        .with_tag("workflow_name", workflow_name.as_str())
+                        .send();
+
                         // 1. Get the latest workflow checksum
 
                         let latest_workflow_res = context.workflow_storage.lastest_workflow(workflow_name.clone()).await;
@@ -123,6 +129,13 @@ pub(crate) async fn action_loop(
 
                     }
                     Action::ReconcileWorkflow(workflow, _) => {
+                        context
+                        .metrics
+                        .count_with_tags("action_loop.event", 1)
+                        .with_tag("event", "reconcile_workflow")
+                        .with_tag("workflow_name", workflow.as_str())
+                        .send();
+
                         // If there are any queued jobs, either in flight or waiting, for the workflow then don't do anything.
                         let queued_workflow_jobs = workflow_queue.iter().filter(|x| x.workflow == workflow).count();
                         if queued_workflow_jobs == 0 {
@@ -176,6 +189,11 @@ pub(crate) async fn action_loop(
                     next_job.checksum,
                     next_job.group.clone()
                 );
+                context
+                    .metrics
+                    .count_with_tags("action_loop.dispatch", 1)
+                    .with_tag("workflow_name", next_job.workflow.as_str())
+                    .send();
 
                 {
                     let context = context.clone();
@@ -186,10 +204,6 @@ pub(crate) async fn action_loop(
                         }
                     })
                 };
-                // in_flight.insert(
-                //     (next_job.workflow.clone(), next_job.group),
-                //     group_join_handle,
-                // );
             }
         }
     }
@@ -244,6 +258,12 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
         }
     }
 
+    context
+        .metrics
+        .gauge_with_tags("workflow_loop.work_remaining", work_queue.len() as f64)
+        .with_tag("workflow_name", workflow_job.workflow.as_str())
+        .send();
+
     let mut history: Vec<(WorkflowAction, DateTime<Utc>)> =
         vec![(WorkflowAction::Started(), Utc::now())];
 
@@ -263,39 +283,64 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
 
                 if work_queue.is_empty() {
                     info!("action_workflow_updated queue is empty");
+                    context
+                        .metrics
+                        .gauge_with_tags("workflow_loop.work_remaining", 0)
+                        .with_tag("workflow_name", workflow_job.workflow.as_str())
+                        .send();
                     break 'working;
                 }
 
                 let now = Utc::now();
 
-                // match history[0].clone() {
-                //     (WorkflowAction::Started(), _) => {}
-                //     (WorkflowAction::WaitDeploymentReady(_), _) => { }
-                //     (WorkflowAction::UpdateDeployment(deployment_name, _), occurred_at) => {
-                //         // TODO: Make this configurable.
-                //         if now > occurred_at + Duration::seconds(3) {
-                //             info!("Waiting for more time to pass after updating deployment {}", &deployment_name);
-                //             sleeper.as_mut().reset(Instant::now() + one_second);
-                //             continue 'working;
-                //         }
-                //     }
-                // }
+                context
+                    .metrics
+                    .gauge_with_tags("workflow_loop.work_remaining", work_queue.len() as f64)
+                    .with_tag("workflow_name", workflow_job.workflow.as_str())
+                    .send();
 
                 match work_queue[0] {
                     WorkflowAction::Started() => {
+                        context
+                            .metrics
+                            .count_with_tags("workflow_loop.event", 1)
+                            .with_tag("workflow_name", workflow_job.workflow.as_str())
+                            .with_tag("event_name", "started")
+                            .send();
+
                         work_queue.remove(0);
                     }
                     WorkflowAction::UpdateDeployment(ref name, ref containers) => {
+                        context
+                            .metrics
+                            .count_with_tags("workflow_loop.event", 1)
+                            .with_tag("workflow_name", workflow_job.workflow.as_str())
+                            .with_tag("event_name", "update_deployment")
+                            .send();
+
                         info!("action_workflow_updated UpdateDeployment: {}", name);
 
                         // TODO: Update the deployment.
                         let deployment = deployment_client.get_opt(name).await;
                         if let Err(err) = deployment {
+                            context
+                                .metrics
+                                .count_with_tags("workflow_loop.deployment_not_found", 1)
+                                .with_tag("workflow_name", workflow_job.workflow.as_str())
+                                .with_tag("deployment_name", name)
+                                .send();
                             error!("UpdateDeployment unable to get deployment {}: {}", name, err);
                             break 'working;
                         }
                         let deployment = deployment.unwrap();
                         if deployment.is_none() {
+                            context
+                                .metrics
+                                .count_with_tags("workflow_loop.deployment_not_found", 1)
+                                .with_tag("workflow_name", workflow_job.workflow.as_str())
+                                .with_tag("deployment_name", name)
+                                .send();
+
                             error!("UpdateDeployment unable to get deployment {}: not found", name);
                             break 'working;
                         }
@@ -305,40 +350,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                             info!("container: {}", container.name);
                             if let Some(version) = containers.iter().find(|x| x.0 == container.name).map(|x| x.1.clone()) {
 
-                                let container_image = container.clone().image.map(|inner| {
-                                    let mut result = String::new();
-                                    if let Some((parts, _)) = inner.rsplit_once(':') {
-                                        result.push_str(parts);
-                                        result.push_str(":");
-                                        result.push_str(&version);
-                                    }
-                                    result
-                                });
-
-                                // let container_image = {
-                                //     let current_container_image =  container.clone().image.unwrap_or_default();
-                                //     // if current_container_image.contains(':') {
-                                //     //     current_container_image.rsplit_once(':').unwrap_or_default().0.to_string()
-                                //     // } else {
-                                //     //     current_container_image
-                                //     // }
-                                //     let current_version = current_container_image.rsplit_once(':').unwrap_or_default().1.to_string();
-                                //     if !current_version.is_empty() {
-                                //         let current_version = current_container_image.rsplit_once(':').unwrap_or_default().1.to_string();
-                                //         Some("".to_string())
-                                //     } else {
-                                //         None
-                                //     }
-                                //     // if let Some(image) = container.image {
-
-                                //     //     image.rsplit_once(':').unwrap().1.to_string()
-                                //     // } else {
-                                //     //     "".to_string()
-                                //     // }
-                                //     // None
-                                // };
-
-                                // // .rsplit_once(2, ':').next().unwrap();
+                                let container_image = replace_last(container.image.clone(), ':', &version);
 
                                 if container_image.is_some() {
                                     json_patch.0.push(json_patch::PatchOperation::Replace(
@@ -359,6 +371,13 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                         )
                         .await;
                         if let Err(err) = patch_res {
+                            context
+                                .metrics
+                                .count_with_tags("workflow_loop.deployment_patch_failed", 1)
+                                .with_tag("workflow_name", workflow_job.workflow.as_str())
+                                .with_tag("deployment_name", name)
+                                .send();
+
                             error!("UpdateDeployment patching deployment {} failed: {}", name, err);
                             break 'working;
                         }
@@ -367,10 +386,24 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                         work_queue.remove(0);
                     }
                     WorkflowAction::WaitDeploymentReady(ref name) => {
+                        context
+                            .metrics
+                            .count_with_tags("workflow_loop.event", 1)
+                            .with_tag("workflow_name", workflow_job.workflow.as_str())
+                            .with_tag("event_name", "wait_deployment_ready")
+                            .send();
+
                         info!("action_workflow_updated WaitDeploymentReady: {}", name);
 
                         let last_deployed_at = history.iter().rev().find(|x| match x.0 { WorkflowAction::UpdateDeployment(ref update_deployment_name, _) => update_deployment_name == name, _ => false }).map(|x| x.1);
                         if last_deployed_at.is_none() {
+                            context
+                                .metrics
+                                .count_with_tags("workflow_loop.deployment_not_found", 1)
+                                .with_tag("workflow_name", workflow_job.workflow.as_str())
+                                .with_tag("deployment_name", name)
+                                .send();
+
                             error!("WaitDeploymentReady failed: No deployment found for {}", name);
                             break 'working;
                         }
@@ -395,6 +428,13 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
 
                         // 4. Error if the status is not ready and we have passed the max wait time
                         if !deployment_is_ready && now > last_deployed_at + Duration::seconds(30) {
+                            context
+                                .metrics
+                                .count_with_tags("workflow_loop.deployment_timeout", 1)
+                                .with_tag("workflow_name", workflow_job.workflow.as_str())
+                                .with_tag("deployment_name", name)
+                                .send();
+
                             error!("WaitDeploymentReady failed: Deployment {} did not become ready within wait period", name);
                             sleeper.as_mut().reset(Instant::now() + one_second);
                             break 'working;

@@ -1,14 +1,8 @@
 {
-    "http": {
-        "enabled": true,
-        "port": 8070,
-        "address": "0.0.0.0"
-    },
-    "https": {
+    "metrics": {
         "enabled": false,
-        "port": 8071,
-        "address": "0.0.0.0",
-        "certificate": "",
-        "certificate_key": ""
+        "statsd_sink": "127.0.0.1:8125",
+        "metric_prefix": "",
+        "global_tags": {}
     }
 }

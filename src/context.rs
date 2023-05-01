@@ -1,6 +1,8 @@
 use std::ops::Deref;
+use std::panic::RefUnwindSafe;
 use std::sync::Arc;
 
+use cadence::MetricClient;
 use tokio::sync::mpsc::Sender;
 
 use crate::action::Action;
@@ -15,6 +17,7 @@ pub(crate) struct InnerContext {
     pub(crate) settings: Settings,
     pub(crate) workflow_storage: Box<dyn WorkflowStorage>,
     pub(crate) action_tx: Sender<Action>,
+    pub(crate) metrics: Arc<dyn MetricClient + Send + Sync + RefUnwindSafe>,
 }
 
 impl InnerContext {
@@ -22,11 +25,13 @@ impl InnerContext {
         settings: Settings,
         workflow_storage: Box<dyn WorkflowStorage>,
         action_tx: Sender<Action>,
+        metrics: Arc<dyn MetricClient + Send + Sync + RefUnwindSafe>,
     ) -> Self {
         Self {
             settings,
             workflow_storage,
             action_tx,
+            metrics,
         }
     }
 }

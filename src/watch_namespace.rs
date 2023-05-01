@@ -24,6 +24,13 @@ pub(crate) async fn watch_namespace(
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
             kube::runtime::watcher::Event::Deleted(namespace) => {
+                context
+                    .metrics
+                    .count_with_tags("namespace_event.encountered", 1)
+                    .with_tag("action", "deleted")
+                    .with_tag("namespace_name", namespace.name_any().as_str())
+                    .send();
+
                 if let Err(err) = context
                     .workflow_storage
                     .disable_namespace(namespace.name_any())
@@ -33,6 +40,13 @@ pub(crate) async fn watch_namespace(
                 }
             }
             kube::runtime::watcher::Event::Applied(namespace) => {
+                context
+                    .metrics
+                    .count_with_tags("namespace_event.encountered", 1)
+                    .with_tag("action", "applied")
+                    .with_tag("namespace_name", namespace.name_any().as_str())
+                    .send();
+
                 match annotation_true(
                     namespace.annotations(),
                     "workflow-deploy.ngerakines.me/enabled",

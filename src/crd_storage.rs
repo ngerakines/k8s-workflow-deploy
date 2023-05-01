@@ -2,9 +2,9 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use tracing::info;
 
 use crate::crd::Workflow;
 
@@ -114,7 +114,7 @@ impl WorkflowStorage for NullWorkflowStorager {
         Ok(vec![])
     }
 
-    fn is_resource_ready(&self, namespace: String, kind: String, name: String) -> bool {
+    fn is_resource_ready(&self, _namespace: String, _kind: String, _name: String) -> bool {
         false
     }
 }

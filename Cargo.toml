@@ -20,8 +20,6 @@ v1_20 = ["k8s-openapi/v1_20"]
 [dependencies]
 anyhow = { version = "1.0.70", features = ["backtrace"] }
 async-trait = {version = "0.1"}
-axum = "0.6.7"
-axum-server = {version = "0.4.7", features = ["tls-rustls"]}
 chrono = "0.4.24"
 config = "0.13.3"
 fnv = "1.0.7"
@@ -36,7 +34,11 @@ serde = {version = "1.0.160", features = ["derive"]}
 serde_json = "1.0.96"
 serde_yaml = "0.9.21"
 tokio = { version = "1", features = ["full"] }
-tower = { version = "0.4" }
-tower-http = { version = "0.4", features = ["trace"] }
 tracing = { version = "0.1.37", features = ["log"] }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
+cadence = "0.29.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
