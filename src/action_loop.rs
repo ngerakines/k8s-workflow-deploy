@@ -75,25 +75,50 @@ pub(crate) async fn action_loop(
                 debug!("action loop got value: {:?}", val);
 
                 match val.clone() {
-                    Action::WorkflowJobFinished(workflow_name, group) => {
+                    Action::WorkflowJobFinished(workflow_name, group, everything_ok) => {
                         context
-                        .metrics
-                        .count_with_tags("action_loop.event", 1)
-                        .with_tag("event", "workflow_job_finished")
-                        .with_tag("workflow_name", workflow_name.as_str())
-                        .with_tag("workflow_group", group.as_str())
-                        .send();
+                            .metrics
+                            .count_with_tags("action_loop.event", 1)
+                            .with_tag("event", "workflow_job_finished")
+                            .with_tag("workflow_name", workflow_name.as_str())
+                            .with_tag("workflow_group", group.as_str())
+                            .with_tag("everything_ok", everything_ok.to_string().as_str())
+                            .send();
 
-                        workflow_queue.retain(|x| x.workflow != workflow_name && x.group != group);
+                        if everything_ok {
+                            workflow_queue.retain(|x| x.workflow != workflow_name && x.group != group);
+                        } else {
+                            let found_workflow = workflow_queue.iter().find(|x| x.workflow == workflow_name && x.group == group);
+                            let purge_workflows = match found_workflow {
+                                Some(v) => {
+                                    workflow_queue.iter().filter(|x| x.checksum != v.checksum).cloned().collect::<Vec<WorkflowJob>>()
+                                },
+                                None => {
+                                    workflow_queue.iter().filter(|x| x.workflow != workflow_name).cloned().collect::<Vec<WorkflowJob>>()
+                                }
+                            };
+
+                            warn!("purging {} {workflow_name} workflows", purge_workflows.len());
+
+                            context
+                                .metrics
+                                .count_with_tags("action_loop.purge", purge_workflows.len() as i64)
+                                .with_tag("workflow_name", workflow_name.as_str())
+                                .send();
+
+                            for purge_workflow in purge_workflows {
+                                workflow_queue.remove(&purge_workflow);
+                            }
+                        }
 
                     }
-                    Action::WorkflowUpdated(workflow_name, _) => {
+                    Action::WorkflowUpdated(workflow_name) => {
                         context
-                        .metrics
-                        .count_with_tags("action_loop.event", 1)
-                        .with_tag("event", "workflow_updated")
-                        .with_tag("workflow_name", workflow_name.as_str())
-                        .send();
+                            .metrics
+                            .count_with_tags("action_loop.event", 1)
+                            .with_tag("event", "workflow_updated")
+                            .with_tag("workflow_name", workflow_name.as_str())
+                            .send();
 
                         // 1. Get the latest workflow checksum
 
@@ -128,13 +153,13 @@ pub(crate) async fn action_loop(
                         });
 
                     }
-                    Action::ReconcileWorkflow(workflow, _) => {
+                    Action::ReconcileWorkflow(workflow) => {
                         context
-                        .metrics
-                        .count_with_tags("action_loop.event", 1)
-                        .with_tag("event", "reconcile_workflow")
-                        .with_tag("workflow_name", workflow.as_str())
-                        .send();
+                            .metrics
+                            .count_with_tags("action_loop.event", 1)
+                            .with_tag("event", "reconcile_workflow")
+                            .with_tag("workflow_name", workflow.as_str())
+                            .send();
 
                         // If there are any queued jobs, either in flight or waiting, for the workflow then don't do anything.
                         let queued_workflow_jobs = workflow_queue.iter().filter(|x| x.workflow == workflow).count();
@@ -154,6 +179,7 @@ pub(crate) async fn action_loop(
         let workflow_names = workflow_names_res.unwrap();
 
         for workflow_name in workflow_names {
+            // TODO: Get this from workflow config.
             let max_in_flight = 3;
             let mut in_flight_count = max_in_flight
                 - workflow_queue
@@ -277,6 +303,8 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
 
     info!("Starting work loop with queue: {:?}", work_queue);
 
+    let mut everything_ok = true;
+
     'working: loop {
         tokio::select! {
             () = &mut sleeper => {
@@ -330,6 +358,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                                 .with_tag("deployment_name", name)
                                 .send();
                             error!("UpdateDeployment unable to get deployment {}: {}", name, err);
+                            everything_ok = false;
                             break 'working;
                         }
                         let deployment = deployment.unwrap();
@@ -342,6 +371,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                                 .send();
 
                             error!("UpdateDeployment unable to get deployment {}: not found", name);
+                            everything_ok = false;
                             break 'working;
                         }
 
@@ -379,6 +409,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                                 .send();
 
                             error!("UpdateDeployment patching deployment {} failed: {}", name, err);
+                            everything_ok = false;
                             break 'working;
                         }
 
@@ -405,6 +436,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
                                 .send();
 
                             error!("WaitDeploymentReady failed: No deployment found for {}", name);
+                            everything_ok = false;
                             break 'working;
                         }
                         let last_deployed_at = last_deployed_at.unwrap();
@@ -437,6 +469,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
 
                             error!("WaitDeploymentReady failed: Deployment {} did not become ready within wait period", name);
                             sleeper.as_mut().reset(Instant::now() + one_second);
+                            everything_ok = false;
                             break 'working;
                         }
 
@@ -458,6 +491,7 @@ async fn action_workflow_updated(context: Context, workflow_job: WorkflowJob) ->
         .send(Action::WorkflowJobFinished(
             workflow_job.workflow.clone(),
             workflow_job.group.clone(),
+            everything_ok,
         ))
         .await
     {

@@ -1,33 +1,64 @@
 # k8s-workflow-deploy
 
-# TODO
+This is a Kubernetes controller that updates groups of deployments using Workflow definitions.
 
-* [ ] Write a plan to support workflow changes while there are active or queued workflow jobs
-* [ ] Think about a workflow checksum use tracker
-* [ ] Think about workflow enabled, paused, and drain status
-* [ ] Think about namespace selectors
+Use case: You have a bunch of the same deployments across multiple namespaces that you want to update safely in parallel.
 
-# Selection
+# Workflow CRD
 
-All deployments must have the `workflow-deploy.ngerakines.me/workflow` annotation. This is used as a practical way to prevent resources from spanning multiple workflows.
-
-Additionally, the `workflow-deploy.ngerakines.me/enabled` annotation must be set to `true` in the resource namespace.
-
-# Grouping
-
-The `groupByNamespace` and `groupAnnotations` annotations are used to group resources in a workflow. By default, the `groupByNamespace` is True and the `groupAnnotations` is empty.
-
-* To group resources by namespace, don't change anything.
-* To group resources by namespace and annotation, set `groupByNamespace` to True and add the annotation to `groupAnnotations`.
-* To create a group that spans multiple annotations, set `groupByNamespace` to False and add the annotations to `groupAnnotations`.
-
-```
+```yaml
+---
+apiVersion: workflow-deploy.ngerakines.me/v1alpha
+kind: Workflow
+metadata:
+  name: tenants
 spec:
-  groupByNamespace: true
-  groupAnnotations:
-  - workflow-deploy.ngerakines.me/group
+  version: "1.0.0"
+  debounce: 90
+  namespaces: ["foo", "bar", "baz"]
+  supression:
+  - "2023-07-04"
+  - "Sunday"
+  - "Saturday"
+  steps:
+  - actions:
+    - action: scale_down
+      targets:
+      - resource: Deployment
+        name: worker
+        containers: ["app"]
+  - actions:
+    - action: update_deployment
+      targets:
+      - resource: Deployment
+        name: app
+        containers: ["app"]
+      - resource: Deployment
+        name: worker
+        containers: ["app"]
+      - resource: Deployment
+        name: api
+        containers: ["api"]
+  - actions:
+    - action: restore_replica_count
+      targets:
+      - resource: Deployment
+        name: worker
+        containers: ["app"]
 ```
 
-# Workflow Changes
+# Grouping and selection
 
-When a workflow resource is encountered, a checksum is created of the workflow resource and is matched against all of the targets it applies to.
+Resources are updated in groups using their kubernetes namespace as the selector.
+
+For example using the above Workflow resource, if the app, worker, and api deployments all exist in the foo, bar, and baz namespaces, then the "tenants" workflow would have 3 groups that are updated independantly of eachother.
+
+# Roadmap
+
+* [ ] Add support for namespace selection using annotations.
+
+  This would remove the `namespaces` attribute from the Workflow resource and instead look for the `workflow-deploy.ngerakines.me/enabled` and `workflow-deploy.ngerakines.me/workflow` annotations on namespaces.
+
+* [ ] Relative suppression values.
+
+  This includes support for values like "Friday after 5:00 PM to Monday at 7:00 AM", "Weekdays before 5:00 AM", and "Weekdays after 9:00 PM"
