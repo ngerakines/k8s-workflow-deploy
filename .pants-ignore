@@ -1,8 +1,5 @@
 {
   "ignore": [
-    {
-      "id": "CVE-2023-26964",
-      "reason": "Not applicable for internal services."
-    }
+    { "id": "CVE-2023-26964" }
   ]
 }
