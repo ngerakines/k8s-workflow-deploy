@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::Utc;
 use futures::prelude::*;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
@@ -24,7 +23,6 @@ pub(crate) async fn watch_workflow(
     info!("kubernetes workflow watcher started");
 
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
-        let now = Utc::now();
         match event {
             kube::runtime::watcher::Event::Deleted(workflow) => {
                 context
@@ -52,7 +50,7 @@ pub(crate) async fn watch_workflow(
                 }
                 if let Err(err) = context
                     .action_tx
-                    .send(Action::WorkflowUpdated(workflow.name_any(), now))
+                    .send(Action::WorkflowUpdated(workflow.name_any()))
                     .await
                 {
                     error!("Failed to remove workflow: {}", err);

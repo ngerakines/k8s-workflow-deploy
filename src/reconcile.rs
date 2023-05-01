@@ -41,18 +41,25 @@ pub(crate) async fn reconcile_loop(
                     let reconcile_check = reconcile_checks.entry(workflow_name.clone()).or_insert_with(|| now);
 
                     if now > *reconcile_check {
-                        info!("Reconciling workspace {workflow_name}");
+                        context
+                            .metrics
+                            .count_with_tags("reconcile_loop.reconcile", 1)
+                            .with_tag("workflow_name", workflow_name.as_str())
+                            .send();
+                        info!("Reconciling workflow {workflow_name}");
 
-                        if let Err(err) = context.action_tx.send(Action::ReconcileWorkflow(workflow.name_any(), now)).await {
-                            error!("Failed to remove workflow: {}", err);
+                        if let Err(err) = context.action_tx.send(Action::ReconcileWorkflow(workflow.name_any())).await {
+                            error!("Failed to send reconcile workflow event: {}", err);
                         }
 
+                        // TODO: Pull this from the workflow.
                         reconcile_checks.insert(workflow_name.clone(), now + Duration::seconds(90));
                     } else {
                         debug!("Skipping reconcile for {workflow_name}: {now} <= {reconcile_check}");
                     }
                 }
 
+                // TODO: Warn if workflow intervals are less than the cycle interval.
                 sleeper.as_mut().reset(Instant::now() + interval);
             }
         }
