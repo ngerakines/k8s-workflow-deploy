@@ -16,7 +16,10 @@ spec:
   version: "1.0.0"
   debounce: 90
   namespaces: ["foo", "bar", "baz"]
-  supression: []
+  supression:
+  - "2023-07-04"
+  - "Sunday"
+  - "Saturday"
   steps:
   - actions:
     - action: scale_down
@@ -55,3 +58,7 @@ For example using the above Workflow resource, if the app, worker, and api deplo
 * [ ] Add support for namespace selection using annotations.
 
   This would remove the `namespaces` attribute from the Workflow resource and instead look for the `workflow-deploy.ngerakines.me/enabled` and `workflow-deploy.ngerakines.me/workflow` annotations on namespaces.
+
+* [ ] Relative suppression values.
+
+  This includes support for values like "Friday after 5:00 PM to Monday at 7:00 AM", "Weekdays before 5:00 AM", and "Weekdays after 9:00 PM"
