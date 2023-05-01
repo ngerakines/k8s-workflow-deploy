@@ -22,6 +22,7 @@ mod context;
 mod crd;
 mod crd_storage;
 mod k8s_util;
+mod metrics;
 mod reconcile;
 mod watch_deployment;
 mod watch_namespace;
@@ -35,7 +36,7 @@ use crate::crd_storage::get_workflow_storage;
 use crate::reconcile::reconcile_loop;
 use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
-use crate::watch_workflow::{init_workflow_crd, watch_workflow};
+use crate::watch_workflow::watch_workflow;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -54,6 +55,7 @@ async fn main() -> Result<()> {
     println!("crd: {}", serde_yaml::to_string(&Workflow::crd()).unwrap());
 
     let workflow_storage = get_workflow_storage("memory");
+    let metrics_client = metrics::metrics_client(settings.clone())?;
 
     let (action_tx, mut action_rx) = tokio::sync::mpsc::channel::<Action>(100);
 
@@ -61,6 +63,7 @@ async fn main() -> Result<()> {
         settings.clone(),
         workflow_storage,
         action_tx.clone(),
+        Arc::new(metrics_client),
     )));
 
     // init_workflow_crd().await?;

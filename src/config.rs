@@ -1,10 +1,20 @@
-use std::env;
+use std::{collections::HashMap, env};
 
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Settings {}
+pub struct Stats {
+    pub enabled: bool,
+    pub statsd_sink: String,
+    pub metric_prefix: String,
+    pub global_tags: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Settings {
+    pub stats: Stats,
+}
 
 impl Settings {
     pub(crate) fn new() -> Result<Self, ConfigError> {

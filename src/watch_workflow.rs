@@ -26,10 +26,23 @@ pub(crate) async fn watch_workflow(
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         let now = Utc::now();
         match event {
-            kube::runtime::watcher::Event::Deleted(_workflow) => {
+            kube::runtime::watcher::Event::Deleted(workflow) => {
+                context
+                    .metrics
+                    .count_with_tags("workflow_event.encountered", 1)
+                    .with_tag("action", "deleted")
+                    .with_tag("workflow_name", workflow.name_any().as_str())
+                    .send();
                 warn!("Deleting workflows is not supported");
             }
             kube::runtime::watcher::Event::Applied(workflow) => {
+                context
+                    .metrics
+                    .count_with_tags("workflow_event.encountered", 1)
+                    .with_tag("action", "applied")
+                    .with_tag("workflow_name", workflow.name_any().as_str())
+                    .send();
+
                 if let Err(err) = context
                     .workflow_storage
                     .add_workflow(workflow.clone())
@@ -64,6 +77,7 @@ pub(crate) async fn watch_workflow(
     Ok(())
 }
 
+#[allow(unused)]
 pub(crate) async fn init_workflow_crd() -> Result<()> {
     let client = Client::try_default().await.map_err(anyhow::Error::msg)?;
     let crds: Api<CustomResourceDefinition> = Api::all(client.clone());

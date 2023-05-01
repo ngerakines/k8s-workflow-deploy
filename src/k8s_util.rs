@@ -18,16 +18,12 @@ pub(crate) fn annotation_maybe_int(
         .unwrap_or(None)
 }
 
-pub(crate) fn replace_last(
-    data: Option<String>,
-    search: String,
-    replace: String,
-) -> Option<String> {
+pub(crate) fn replace_last(data: Option<String>, search: char, replace: &str) -> Option<String> {
     data.map(|inner| {
-        let mut parts = inner.rsplitn(2, &search);
+        let mut parts = inner.rsplitn(2, search);
         let mut result = String::new();
         result.push_str(parts.next().unwrap_or_default());
-        result.push_str(&replace);
+        result.push_str(replace);
         result
     })
 }

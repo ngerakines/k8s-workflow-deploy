@@ -26,6 +26,13 @@ pub(crate) async fn watch_deployment(
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
             kube::runtime::watcher::Event::Deleted(deployment) => {
+                context
+                    .metrics
+                    .count_with_tags("deployment_event.encountered", 1)
+                    .with_tag("action", "deleted")
+                    .with_tag("namespace_name", deployment.name_any().as_str())
+                    .send();
+
                 if let Err(err) = context
                     .workflow_storage
                     .remove_resource(
@@ -39,6 +46,13 @@ pub(crate) async fn watch_deployment(
                 }
             }
             kube::runtime::watcher::Event::Applied(deployment) => {
+                context
+                    .metrics
+                    .count_with_tags("deployment_event.encountered", 1)
+                    .with_tag("action", "applied")
+                    .with_tag("namespace_name", deployment.name_any().as_str())
+                    .send();
+
                 info!("deployment status: {:?}", deployment.status);
                 let namespace = deployment.namespace().unwrap_or("default".to_string());
 
@@ -46,10 +60,10 @@ pub(crate) async fn watch_deployment(
                     .clone()
                     .status
                     .map(|status| {
-                        status.conditions.iter().fold(true, |acc, conditions| {
-                            acc && conditions
+                        status.conditions.iter().all(|conditions| {
+                            conditions
                                 .iter()
-                                .fold(true, |acc, condition| acc && condition.status == "True")
+                                .all(|condition| condition.status == "True")
                         })
                     })
                     .unwrap_or_default();
