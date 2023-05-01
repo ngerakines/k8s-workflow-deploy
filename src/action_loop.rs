@@ -82,6 +82,7 @@ pub(crate) async fn action_loop(
                             .with_tag("event", "workflow_job_finished")
                             .with_tag("workflow_name", workflow_name.as_str())
                             .with_tag("workflow_group", group.as_str())
+                            .with_tag("everything_ok", everything_ok.to_string().as_str())
                             .send();
 
                         if everything_ok {
@@ -96,6 +97,8 @@ pub(crate) async fn action_loop(
                                     workflow_queue.iter().filter(|x| x.workflow != workflow_name).cloned().collect::<Vec<WorkflowJob>>()
                                 }
                             };
+
+                            warn!("purging {} {workflow_name} workflows", purge_workflows.len());
 
                             context
                                 .metrics
