@@ -1,6 +1,6 @@
 {
-    "metrics": {
-        "enabled": false,
+    "stats": {
+        "enabled": true,
         "statsd_sink": "127.0.0.1:8125",
         "metric_prefix": "",
         "global_tags": {}

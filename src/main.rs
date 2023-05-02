@@ -13,8 +13,6 @@ use tracing::{error, info};
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use kube::CustomResourceExt;
-
 mod action;
 mod action_loop;
 mod config;
@@ -27,11 +25,11 @@ mod reconcile;
 mod watch_deployment;
 mod watch_namespace;
 mod watch_workflow;
+mod when;
 
 use crate::action::Action;
 use crate::action_loop::action_loop;
 use crate::config::Settings;
-use crate::crd::Workflow;
 use crate::crd_storage::get_workflow_storage;
 use crate::reconcile::reconcile_loop;
 use crate::watch_deployment::watch_deployment;
@@ -51,8 +49,6 @@ async fn main() -> Result<()> {
     warn!("Debug assertions enabled");
 
     let settings = Settings::new()?;
-
-    println!("crd: {}", serde_yaml::to_string(&Workflow::crd()).unwrap());
 
     let workflow_storage = get_workflow_storage("memory");
     let metrics_client = metrics::metrics_client(settings.clone())?;
