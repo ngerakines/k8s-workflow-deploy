@@ -24,7 +24,7 @@ impl Settings {
             .add_source(File::with_name("default"))
             .add_source(File::with_name(&run_mode).required(false))
             .add_source(File::with_name("local").required(false))
-            .add_source(Environment::with_prefix("kwd"))
+            .add_source(Environment::with_prefix("kwd_"))
             .build()?;
 
         s.try_deserialize()

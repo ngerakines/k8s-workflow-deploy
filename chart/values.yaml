@@ -1,0 +1,38 @@
+# Default values for ..
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: ngerakines/workflow-deploy
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+log_level: "k8s_workflow_deploy=warn,error"
+run_mode: production
+
+local_config: {}
+  # This is where your custom configuration goes.
+  # stats:
+  #   statsd_sink: "10.109.139.173:8125"

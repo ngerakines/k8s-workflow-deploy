@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "..fullname" . }}
+data:
+  production.json: |
+    {
+      "stats": {
+        "enabled": true,
+        "statsd_sink": "127.0.0.1:8125",
+        "metric_prefix": "a prefix",
+        "global_tags": {
+          "DD_ENV": "production",
+          "DD_SERVICE": "workflow-deploy"
+        }
+      }
+    }
+  local.json: |
+    {{ toJson .Values.local_config }}

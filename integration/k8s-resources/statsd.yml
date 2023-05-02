@@ -27,6 +27,27 @@ spec:
       - name: statsd-debug
         image: dasch/statsd-debug
         ports:
-        - containerPort: 8125
+        - hostPort: 8125
+          containerPort: 80
           name: statsd
           protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: statsd-debug
+  namespace: kube-system
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: statsd
+    port: 8125
+    protocol: UDP
+    targetPort: 8125
+  selector:
+    name: statsd-debug
+  sessionAffinity: None
+  type: ClusterIP
