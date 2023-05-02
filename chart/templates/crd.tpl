@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "..labels" . | nindent 4 }}
 spec:
-  group: "workflow-deploy.ngerakines.me"
+  group: workflow-deploy.ngerakines.me
   names:
     categories: []
     kind: Workflow
@@ -32,6 +32,11 @@ spec:
                 items:
                   type: string
                 type: array
+              parallel:
+                format: uint32
+                minimum: 0
+                nullable: true
+                type: integer
               steps:
                 items:
                   properties:

@@ -4,5 +4,9 @@
         "statsd_sink": "127.0.0.1:8125",
         "metric_prefix": "",
         "global_tags": {}
+    },
+    "reconciler": {
+        "initial_delay_seconds": 15,
+        "delay_seconds": 1800
     }
 }

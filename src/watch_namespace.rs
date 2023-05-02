@@ -9,13 +9,9 @@ use kube::{
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
 
-use crate::{config::Settings, context::Context, k8s_util::annotation_true};
+use crate::{context::Context, k8s_util::annotation_true};
 
-pub(crate) async fn watch_namespace(
-    _settings: Settings,
-    context: Context,
-    shutdown: &mut Receiver<bool>,
-) -> Result<()> {
+pub(crate) async fn watch_namespace(context: Context, shutdown: &mut Receiver<bool>) -> Result<()> {
     let client = Client::try_default().await.map_err(anyhow::Error::msg)?;
     let api = Api::<Namespace>::all(client.clone());
 

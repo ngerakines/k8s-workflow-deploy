@@ -9,16 +9,12 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use crate::{action::Action, config::Settings, context::Context};
+use crate::{action::Action, context::Context};
 
-pub(crate) async fn reconcile_loop(
-    _settings: Settings,
-    context: Context,
-    shutdown: &mut Receiver<bool>,
-) -> Result<()> {
+pub(crate) async fn reconcile_loop(context: Context, shutdown: &mut Receiver<bool>) -> Result<()> {
     info!("reconcile loop started");
 
-    let interval = Duration::seconds(30).to_std()?;
+    let interval = Duration::seconds(60).to_std()?;
 
     let sleeper = sleep(interval);
     tokio::pin!(sleeper);
@@ -38,7 +34,7 @@ pub(crate) async fn reconcile_loop(
 
                 for workflow in workflows {
                     let workflow_name = workflow.name_any();
-                    let reconcile_check = reconcile_checks.entry(workflow_name.clone()).or_insert_with(|| now);
+                    let reconcile_check = reconcile_checks.entry(workflow_name.clone()).or_insert_with(|| now + Duration::seconds(context.settings.reconciler.initial_delay_seconds as i64));
 
                     if now > *reconcile_check {
                         context
@@ -53,7 +49,7 @@ pub(crate) async fn reconcile_loop(
                         }
 
                         // TODO: Pull this from the workflow.
-                        reconcile_checks.insert(workflow_name.clone(), now + Duration::minutes(5));
+                        reconcile_checks.insert(workflow_name.clone(), now + Duration::seconds(context.settings.reconciler.delay_seconds as i64));
                     } else {
                         debug!("Skipping reconcile for {workflow_name}: {now} <= {reconcile_check}");
                     }

@@ -9,14 +9,10 @@ use kube::{
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info, log::warn};
 
+use crate::context::Context;
 use crate::{action::Action, crd::Workflow};
-use crate::{config::Settings, context::Context};
 
-pub(crate) async fn watch_workflow(
-    _settings: Settings,
-    context: Context,
-    shutdown: &mut Receiver<bool>,
-) -> Result<()> {
+pub(crate) async fn watch_workflow(context: Context, shutdown: &mut Receiver<bool>) -> Result<()> {
     let client = Client::try_default().await.map_err(anyhow::Error::msg)?;
     let api = Api::<Workflow>::all(client.clone());
 

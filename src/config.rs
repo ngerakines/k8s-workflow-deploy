@@ -1,7 +1,14 @@
+use anyhow::{anyhow, Result};
 use std::{collections::HashMap, env};
 
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Reconciler {
+    pub delay_seconds: u32,
+    pub initial_delay_seconds: u32,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Stats {
@@ -14,6 +21,7 @@ pub struct Stats {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub stats: Stats,
+    pub reconciler: Reconciler,
 }
 
 impl Settings {
@@ -28,5 +36,21 @@ impl Settings {
             .build()?;
 
         s.try_deserialize()
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.stats.enabled && self.stats.statsd_sink.is_empty() {
+            return Err(anyhow!("statsd_sink must be set when stats are enabled"));
+        }
+        if self.reconciler.initial_delay_seconds < 15 {
+            return Err(anyhow!(
+                "reconciler.initial_delay_seconds must be at least 15 seconds"
+            ));
+        }
+        if self.reconciler.delay_seconds < 60 {
+            return Err(anyhow!("reconciler.delay_seconds must at least 60 seconds"));
+        }
+
+        Ok(())
     }
 }

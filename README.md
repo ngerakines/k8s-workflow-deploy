@@ -14,11 +14,12 @@ metadata:
   name: tenants
 spec:
   version: "1.0.0"
+  parallel: 3
   debounce: 90
   namespaces: ["foo", "bar", "baz"]
-    supression:
-    - "2023-05-02T14:00:00.000000-04:00"
-    - "2023-05-05T19:00:0-04:00 2023-05-09T07:00:00-04:00"
+  supression:
+  - "2023-05-02T14:00:00.000000-04:00"
+  - "2023-05-05T19:00:0-04:00 2023-05-09T07:00:00-04:00"
   steps:
   - actions:
     - action: update_deployment
