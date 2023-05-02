@@ -1,4 +1,7 @@
-use std::{borrow::BorrowMut, collections::HashSet};
+use std::{
+    borrow::BorrowMut,
+    collections::{HashMap, HashSet},
+};
 
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
@@ -14,7 +17,13 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-use crate::{action::Action, config::Settings, context::Context, k8s_util::replace_last};
+use crate::{
+    action::Action,
+    config::Settings,
+    context::Context,
+    k8s_util::replace_last,
+    when::{parse_supressions, Supression},
+};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct WorkflowJob {
@@ -52,10 +61,9 @@ pub(crate) async fn action_loop(
     tokio::pin!(sleeper);
 
     let mut workflow_queue: HashSet<WorkflowJob> = HashSet::new();
+    let mut workflow_supressions: HashMap<String, Vec<Supression>> = HashMap::new();
 
     'outer: loop {
-        let now = Utc::now();
-
         tokio::select! {
             biased;
             _ = shutdown.recv() => {
@@ -138,9 +146,14 @@ pub(crate) async fn action_loop(
                         }
                         let workflow = workflow_res.unwrap();
 
+                        let supressions = parse_supressions(workflow.spec.supression);
+                        info!("supressions: {:?}", supressions);
+                        workflow_supressions.insert(workflow_name.clone(), supressions);
+
                         // 3. Remove any items from the queue that are not in-flight and have the same workflow name and have a different workflow checksum
                         workflow_queue.retain(|x| x.should_retain(&workflow_name));
 
+                        let now = Utc::now();
                         // 4. Add all of the groups to the queue
                         workflow.spec.namespaces.iter().for_each(|namespace| {
                             workflow_queue.insert(WorkflowJob {
@@ -151,7 +164,6 @@ pub(crate) async fn action_loop(
                                 in_flight: false,
                             });
                         });
-
                     }
                     Action::ReconcileWorkflow(workflow) => {
                         context
@@ -171,6 +183,8 @@ pub(crate) async fn action_loop(
             }
         }
 
+        let now = Utc::now();
+
         let workflow_names_res = context.workflow_storage.get_workflow_names();
         if workflow_names_res.is_err() {
             error!("unable to get workflow names: {:?}", workflow_names_res);
@@ -178,7 +192,31 @@ pub(crate) async fn action_loop(
         }
         let workflow_names = workflow_names_res.unwrap();
 
-        for workflow_name in workflow_names {
+        'workflow_names: for workflow_name in workflow_names {
+            let work_to_do = workflow_queue
+                .iter()
+                .any(|x| x.workflow == workflow_name && !x.in_flight);
+            if !work_to_do {
+                continue 'workflow_names;
+            }
+
+            let supressions = workflow_supressions
+                .get(&workflow_name)
+                .cloned()
+                .unwrap_or(vec![]);
+            for supression in supressions {
+                if supression.is_supressed(now) {
+                    trace!("{} {:?} inside {:?}", &workflow_name, now, supression);
+                    context
+                        .metrics
+                        .count_with_tags("action_loop.supress", 1)
+                        .with_tag("workflow_name", &workflow_name)
+                        .send();
+
+                    continue 'workflow_names;
+                }
+            }
+
             // TODO: Get this from workflow config.
             let max_in_flight = 3;
             let mut in_flight_count = max_in_flight

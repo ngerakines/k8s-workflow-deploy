@@ -5,12 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hasher;
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
-pub(crate) struct SupressionRange {
-    pub(crate) start: String,
-    pub(crate) end: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub(crate) struct WorkflowStepActionTarget {
     pub(crate) resource: String,
     pub(crate) name: String,
@@ -39,7 +33,7 @@ pub(crate) struct WorkflowSpec {
     pub(crate) namespaces: Vec<String>,
     pub(crate) version: String,
     pub(crate) debounce: Option<u32>,
-    pub(crate) supression: Vec<SupressionRange>,
+    pub(crate) supression: Vec<String>,
     pub(crate) steps: Vec<WorkflowStep>,
 }
 
@@ -56,29 +50,16 @@ impl Workflow {
 
         hasher.write(format!("debounce={}", self.spec.debounce.unwrap_or_default()).as_bytes());
 
-        for supression in self.spec.supression.iter() {
-            hasher.write(format!("supression={}", supression.checksum()).as_bytes());
+        let mut supression = self.spec.supression.clone();
+        supression.sort();
+        for value in supression.iter() {
+            hasher.write(format!("supression={}", value).as_bytes());
         }
 
         for step in self.spec.steps.iter() {
             hasher.write(format!("step={}", step.checksum()).as_bytes());
         }
 
-        hasher.finish()
-    }
-}
-
-impl SupressionRange {
-    pub(crate) fn checksum(&self) -> u64 {
-        let mut hasher = FnvHasher::default();
-        hasher.write(
-            format!(
-                "start={} end={}",
-                self.start,
-                self.end.clone().unwrap_or_default()
-            )
-            .as_bytes(),
-        );
         hasher.finish()
     }
 }

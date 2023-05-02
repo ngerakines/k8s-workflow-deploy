@@ -7,7 +7,9 @@ spec:
   version: "1.0.0-2"
   debounce: 90
   namespaces: ["foo"]
-  supression: []
+  supression:
+  - "2023-05-02T10:44:59.218375-04:00"
+  - "2023-05-02T10:44:58.218375-04:00 2023-05-02T10:44:59.218375-04:00"
   steps:
   - actions:
     - action: update_deployment
