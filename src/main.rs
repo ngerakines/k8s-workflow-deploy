@@ -33,16 +33,15 @@ mod when;
 use crate::action::Action;
 use crate::action_loop::action_loop;
 use crate::config::Settings;
+use crate::crd::Workflow;
 use crate::crd_storage::get_workflow_storage;
 use crate::reconcile::reconcile_loop;
 use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
 use crate::watch_workflow::watch_workflow;
-use crate::crd::Workflow;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     if args_os().any(|value| value == "--dump-crd") {
         println!("crd: {}", serde_yaml::to_string(&Workflow::crd()).unwrap());
         return Ok(());
