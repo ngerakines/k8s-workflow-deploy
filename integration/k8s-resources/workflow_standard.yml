@@ -4,7 +4,7 @@ kind: Workflow
 metadata:
   name: foo
 spec:
-  version: "1.0.0-2"
+  version: "1.0.0-3"
   debounce: 90
   namespaces: ["foo"]
   supression:

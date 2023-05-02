@@ -1,0 +1,12 @@
+apiVersion: v2
+name: workflow-deploy
+description: A Helm chart for the workflow-deploy daemon.
+type: application
+version: 0.1.0
+appVersion: "1.16.0"
+maintainers:
+  - Nick Gerakines <nick.gerakines@gmail.com>
+source:
+  - https://github.com/ngerakines/k8s-workflow-deploy
+details:
+  The workflow-deploy daemon provides templated deployment updates.

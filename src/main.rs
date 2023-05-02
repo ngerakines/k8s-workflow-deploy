@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::borrow::BorrowMut;
+use std::env::args_os;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::Arc;
@@ -12,6 +13,8 @@ use tracing::warn;
 use tracing::{error, info};
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use kube::CustomResourceExt;
 
 mod action;
 mod action_loop;
@@ -35,9 +38,16 @@ use crate::reconcile::reconcile_loop;
 use crate::watch_deployment::watch_deployment;
 use crate::watch_namespace::watch_namespace;
 use crate::watch_workflow::watch_workflow;
+use crate::crd::Workflow;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+
+    if args_os().any(|value| value == "--dump-crd") {
+        println!("crd: {}", serde_yaml::to_string(&Workflow::crd()).unwrap());
+        return Ok(());
+    }
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "k8s_workflow_deploy=debug,info".into()),

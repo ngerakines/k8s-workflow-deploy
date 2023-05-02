@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "..fullname" . }}
+  labels:
+    {{- include "..labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "..selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "..selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "..serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+          - name: RUST_LOG
+            value: {{ .Values.log_level | quote }}
+          - name: RUN_MODE
+            value: {{ .Values.run_mode | quote }}
+          volumeMounts:
+          - mountPath: /app/local.json
+            name: {{ include "..fullname" . }}
+            readOnly: true
+            subPath: local.json
+          - mountPath: /app/production.json
+            name: {{ include "..fullname" . }}
+            readOnly: true
+            subPath: production.json
+          startupProbe:
+            exec:
+              command: ["cat", "/tmp/started"]
+            failureThreshold: 12
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["cat", "/tmp/alive"]
+            initialDelaySeconds: 5
+            failureThreshold: 12
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["cat", "/tmp/ready"]
+            initialDelaySeconds: 5
+            failureThreshold: 6
+            periodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          items:
+          - key: local.json
+            path: local.json
+          - key: production.json
+            path: production.json
+          name: {{ include "..fullname" . }}
+        name: {{ include "..fullname" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
