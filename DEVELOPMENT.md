@@ -20,7 +20,7 @@ On windows, you need to run the following command to use the registry:
     $ minikube kubectl -- port-forward --namespace kube-system service/registry 5000:80
     $ docker run --rm -it --network=host alpine ash -c "apk add socat && socat TCP-LISTEN:5000,reuseaddr,fork TCP:host.docker.internal:5000"
 
-## Namespace setup
+## Helm setup
 
     $ kubectl apply -f ./k8s-resources/ns.yml
     $ kubectl apply -f ./k8s-resources/serviceaccount.yml
@@ -36,10 +36,11 @@ Build the container:
 4. Build and push the container.
 
 ```bash
-docker build --build-arg GIT_HASH=`git rev-parse HEAD` -t localhost:5000/k8s-workflow-deploy:`git rev-parse HEAD` -t localhost:5000/k8s-workflow-deploy:latest .
+docker build --build-arg GIT_HASH=`git rev-parse HEAD` -t localhost:5000/k8s-workflow-deploy:`git rev-parse HEAD` .
+docker tag localhost:5000/k8s-workflow-deploy:`git rev-parse HEAD` localhost:5000/k8s-workflow-deploy:latest
 docker push localhost:5000/k8s-workflow-deploy:latest
 docker push localhost:5000/k8s-workflow-deploy:`git rev-parse HEAD`
-kubectl -n workflow-deployment set image deployment/workflow-deployment app=localhost:5000/k8s-workflow-deploy:`git rev-parse HEAD`
+helm upgrade --install --set=fullnameOverride=workflow-deploy --set=image.repository=localhost:5000/k8s-workflow-deploy --set=image.tag=`git rev-parse HEAD` workflow-deploy ./chart/
 ```
 
 ## Examples

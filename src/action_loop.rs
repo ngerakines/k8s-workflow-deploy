@@ -167,18 +167,29 @@ pub(crate) async fn action_loop(
                             });
                         }
                     }
-                    Action::ReconcileWorkflow(workflow) => {
+                    Action::ReconcileWorkflow(workflow_name) => {
                         context
                             .metrics
                             .count_with_tags("action_loop.event", 1)
                             .with_tag("event", "reconcile_workflow")
-                            .with_tag("workflow_name", workflow.as_str())
+                            .with_tag("workflow_name", workflow_name.as_str())
                             .send();
 
+                        let workflow_res = context.workflow_storage.get_workflow(workflow_name.clone(), None).await;
+                        if workflow_res.is_err() {
+                            error!("unable to get latest workflow: {:?}", val);
+                            continue 'outer;
+                        }
+                        let workflow = workflow_res.unwrap();
+
+                        let supressions = parse_supressions(workflow.spec.supression);
+                        info!("supressions: {:?}", supressions);
+                        workflow_supressions.insert(workflow_name.clone(), supressions);
+
                         // If there are any queued jobs, either in flight or waiting, for the workflow then don't do anything.
-                        let queued_workflow_jobs = workflow_queue.iter().filter(|x| x.workflow == workflow).count();
+                        let queued_workflow_jobs = workflow_queue.iter().filter(|x| x.workflow == workflow_name).count();
                         if queued_workflow_jobs == 0 {
-                            warn!("ReconcileWorkflow not implemented");
+                            debug!("ReconcileWorkflow not implemented");
                         }
                     }
                 }

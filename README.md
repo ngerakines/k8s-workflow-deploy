@@ -1,6 +1,6 @@
 # k8s-workflow-deploy
 
-This is a Kubernetes controller that updates groups of deployments using Workflow definitions.
+`workflow-deploy` is a Kubernetes controller that updates groups of deployments using Workflow definitions.
 
 Use case: You have a bunch of the same deployments across multiple namespaces that you want to update safely in parallel.
 
@@ -16,17 +16,10 @@ spec:
   version: "1.0.0"
   debounce: 90
   namespaces: ["foo", "bar", "baz"]
-  supression:
-  - "2023-07-04"
-  - "Sunday"
-  - "Saturday"
+    supression:
+    - "2023-05-02T14:00:00.000000-04:00"
+    - "2023-05-05T19:00:0-04:00 2023-05-09T07:00:00-04:00"
   steps:
-  - actions:
-    - action: scale_down
-      targets:
-      - resource: Deployment
-        name: worker
-        containers: ["app"]
   - actions:
     - action: update_deployment
       targets:
@@ -39,12 +32,6 @@ spec:
       - resource: Deployment
         name: api
         containers: ["api"]
-  - actions:
-    - action: restore_replica_count
-      targets:
-      - resource: Deployment
-        name: worker
-        containers: ["app"]
 ```
 
 # Grouping and selection

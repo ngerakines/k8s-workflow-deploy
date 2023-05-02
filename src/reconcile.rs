@@ -53,7 +53,7 @@ pub(crate) async fn reconcile_loop(
                         }
 
                         // TODO: Pull this from the workflow.
-                        reconcile_checks.insert(workflow_name.clone(), now + Duration::seconds(90));
+                        reconcile_checks.insert(workflow_name.clone(), now + Duration::minutes(5));
                     } else {
                         debug!("Skipping reconcile for {workflow_name}: {now} <= {reconcile_check}");
                     }

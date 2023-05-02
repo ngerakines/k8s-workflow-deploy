@@ -4,12 +4,12 @@ kind: Workflow
 metadata:
   name: foo
 spec:
-  version: "1.0.0-3"
+  version: "1.0.0-1"
   debounce: 90
   namespaces: ["foo"]
   supression:
-  - "2023-05-02T10:44:59.218375-04:00"
-  - "2023-05-02T10:44:58.218375-04:00 2023-05-02T10:44:59.218375-04:00"
+  - "2023-05-02T14:00:00.000000-04:00"
+  - "2023-05-05T19:00:0-04:00 2023-05-09T07:00:00-04:00"
   steps:
   - actions:
     - action: update_deployment
