@@ -120,7 +120,7 @@ pub(crate) async fn action_loop(
                         }
 
                     }
-                    Action::WorkflowUpdated(workflow_name) => {
+                    Action::WorkflowUpdated(workflow_name, version_changed) => {
                         context
                             .metrics
                             .count_with_tags("action_loop.event", 1)
@@ -150,6 +150,7 @@ pub(crate) async fn action_loop(
                         info!("supressions: {:?}", supressions);
                         workflow_supressions.insert(workflow_name.clone(), supressions);
 
+                        if version_changed {
                         // 3. Remove any items from the queue that are not in-flight and have the same workflow name and have a different workflow checksum
                         workflow_queue.retain(|x| x.should_retain(&workflow_name));
 
@@ -164,6 +165,7 @@ pub(crate) async fn action_loop(
                                 in_flight: false,
                             });
                         });
+                        }
                     }
                     Action::ReconcileWorkflow(workflow) => {
                         context

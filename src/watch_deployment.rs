@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures::prelude::*;
 use k8s_openapi::{api::apps::v1::Deployment, Resource};
 use kube::{
-    api::{Api, ResourceExt},
+    api::{Api, ListParams, ResourceExt},
     runtime::watcher,
     Client,
 };
@@ -22,6 +22,57 @@ pub(crate) async fn watch_deployment(
     let deployment_kind = format!("{};{}", Deployment::API_VERSION, Deployment::KIND);
 
     info!("kubernetes deployment watcher started");
+
+    for deployment in api.list(&ListParams::default()).await?.into_iter() {
+        info!("deployment status: {:?}", deployment.status);
+        let namespace = deployment.namespace().unwrap_or("default".to_string());
+
+        let ready = deployment
+            .clone()
+            .status
+            .map(|status| {
+                status.conditions.iter().all(|conditions| {
+                    conditions
+                        .iter()
+                        .all(|condition| condition.status == "True")
+                })
+            })
+            .unwrap_or_default();
+        info!("deployment ready: {}", ready);
+
+        match deployment
+            .annotations()
+            .get("workflow-deploy.ngerakines.me/workflow")
+        {
+            Some(workflow) => {
+                if let Err(err) = context
+                    .workflow_storage
+                    .add_resource(
+                        namespace,
+                        deployment_kind.clone(),
+                        deployment.name_any(),
+                        workflow.to_string(),
+                        deployment.annotations().clone(),
+                        ready,
+                    )
+                    .await
+                {
+                    error!("Failed to add resource: {}", err);
+                }
+            }
+            None => {
+                if let Err(err) = context
+                    .workflow_storage
+                    .remove_resource(namespace, deployment_kind.clone(), deployment.name_any())
+                    .await
+                {
+                    error!("Failed to remove resource: {}", err);
+                }
+            }
+        }
+    }
+
+    // There is a small, but real chance that in between the above list and the below watch, a deployment could be added, updated, or removed.
 
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
