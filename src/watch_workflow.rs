@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures::prelude::*;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
-    api::{Api, DeleteParams, PostParams, ResourceExt},
+    api::{Api, DeleteParams, ListParams, PostParams, ResourceExt},
     runtime::watcher,
     Client, CustomResourceExt,
 };
@@ -22,6 +22,18 @@ pub(crate) async fn watch_workflow(
 
     info!("kubernetes workflow watcher started");
 
+    for workflow in api.list(&ListParams::default()).await?.into_iter() {
+        if let Err(err) = context
+            .workflow_storage
+            .add_workflow(workflow.clone())
+            .await
+        {
+            error!("Failed to add workflow: {}", err);
+        }
+    }
+
+    // There is a small, but real chance that in between the above list and the below watch, a workflow could be added, updated, or removed.
+
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
             kube::runtime::watcher::Event::Deleted(workflow) => {
@@ -40,20 +52,29 @@ pub(crate) async fn watch_workflow(
                     .with_tag("action", "applied")
                     .with_tag("workflow_name", workflow.name_any().as_str())
                     .send();
+                let current_version = context
+                    .workflow_storage
+                    .current_version(workflow.name_any())
+                    .await
+                    .unwrap_or("".to_string());
 
                 if let Err(err) = context
                     .workflow_storage
                     .add_workflow(workflow.clone())
                     .await
                 {
-                    error!("Failed to remove workflow: {}", err);
+                    error!("Failed to add workflow: {}", err);
                 }
+
                 if let Err(err) = context
                     .action_tx
-                    .send(Action::WorkflowUpdated(workflow.name_any()))
+                    .send(Action::WorkflowUpdated(
+                        workflow.name_any(),
+                        current_version != workflow.spec.version,
+                    ))
                     .await
                 {
-                    error!("Failed to remove workflow: {}", err);
+                    error!("Failed to publish WorkflowUpdated message: {}", err);
                 }
             }
             _ => {}

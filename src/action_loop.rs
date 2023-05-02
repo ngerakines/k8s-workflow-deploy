@@ -120,7 +120,7 @@ pub(crate) async fn action_loop(
                         }
 
                     }
-                    Action::WorkflowUpdated(workflow_name) => {
+                    Action::WorkflowUpdated(workflow_name, version_changed) => {
                         context
                             .metrics
                             .count_with_tags("action_loop.event", 1)
@@ -150,20 +150,22 @@ pub(crate) async fn action_loop(
                         info!("supressions: {:?}", supressions);
                         workflow_supressions.insert(workflow_name.clone(), supressions);
 
-                        // 3. Remove any items from the queue that are not in-flight and have the same workflow name and have a different workflow checksum
-                        workflow_queue.retain(|x| x.should_retain(&workflow_name));
+                        if version_changed {
+                            // 3. Remove any items from the queue that are not in-flight and have the same workflow name and have a different workflow checksum
+                            workflow_queue.retain(|x| x.should_retain(&workflow_name));
 
-                        let now = Utc::now();
-                        // 4. Add all of the groups to the queue
-                        workflow.spec.namespaces.iter().for_each(|namespace| {
-                            workflow_queue.insert(WorkflowJob {
-                                workflow: workflow_name.clone(),
-                                checksum: latest_workflow,
-                                group: namespace.clone(),
-                                after: now + Duration::seconds(15),
-                                in_flight: false,
+                            let now = Utc::now();
+                            // 4. Add all of the groups to the queue
+                            workflow.spec.namespaces.iter().for_each(|namespace| {
+                                workflow_queue.insert(WorkflowJob {
+                                    workflow: workflow_name.clone(),
+                                    checksum: latest_workflow,
+                                    group: namespace.clone(),
+                                    after: now + Duration::seconds(15),
+                                    in_flight: false,
+                                });
                             });
-                        });
+                        }
                     }
                     Action::ReconcileWorkflow(workflow) => {
                         context

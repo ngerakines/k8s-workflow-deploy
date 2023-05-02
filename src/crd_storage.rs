@@ -50,6 +50,8 @@ pub(crate) trait WorkflowStorage: Sync + Send {
     async fn namespace_enabled(&self, name: String) -> Result<bool>;
 
     fn is_resource_ready(&self, namespace: String, kind: String, name: String) -> bool;
+
+    async fn current_version(&self, workspace_name: String) -> Option<String>;
 }
 
 #[derive(Default)]
@@ -116,6 +118,10 @@ impl WorkflowStorage for NullWorkflowStorager {
 
     fn is_resource_ready(&self, _namespace: String, _kind: String, _name: String) -> bool {
         false
+    }
+
+    async fn current_version(&self, _workspace_name: String) -> Option<String> {
+        None
     }
 }
 
@@ -265,6 +271,18 @@ impl WorkflowStorage for MemoryWorkflowStorager {
             .resources
             .iter()
             .any(|r| r.namespace == namespace && r.kind == kind && r.name == name && r.ready)
+    }
+
+    async fn current_version(&self, workspace_name: String) -> Option<String> {
+        let inner_lock = self.inner.lock();
+        let inner = inner_lock.borrow_mut();
+
+        inner.latest.get(&workspace_name).and_then(|version| {
+            inner
+                .workflows
+                .get(version)
+                .map(|workflow| workflow.spec.version.clone())
+        })
     }
 }
 

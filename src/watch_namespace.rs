@@ -2,7 +2,7 @@ use anyhow::Result;
 use futures::prelude::*;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{
-    api::{Api, ResourceExt},
+    api::{Api, ListParams, ResourceExt},
     runtime::watcher,
     Client,
 };
@@ -20,6 +20,34 @@ pub(crate) async fn watch_namespace(
     let api = Api::<Namespace>::all(client.clone());
 
     info!("kubernetes namespace watcher started");
+
+    for namespace in api.list(&ListParams::default()).await?.into_iter() {
+        match annotation_true(
+            namespace.annotations(),
+            "workflow-deploy.ngerakines.me/enabled",
+        ) {
+            true => {
+                if let Err(err) = context
+                    .workflow_storage
+                    .enable_namespace(namespace.name_any())
+                    .await
+                {
+                    error!("Failed to enable namespace: {}", err);
+                }
+            }
+            false => {
+                if let Err(err) = context
+                    .workflow_storage
+                    .disable_namespace(namespace.name_any())
+                    .await
+                {
+                    error!("Failed to disable namespace: {}", err);
+                }
+            }
+        }
+    }
+
+    // There is a small, but real chance that in between the above list and the below watch, a namespace could be added, updated, or removed.
 
     let deployment_watcher = watcher(api, watcher::Config::default()).try_for_each(|event| async {
         match event {
