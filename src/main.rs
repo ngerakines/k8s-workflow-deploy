@@ -43,13 +43,17 @@ use crate::watch_workflow::watch_workflow;
 #[tokio::main]
 async fn main() -> Result<()> {
     if args_os().any(|value| value == "--dump-crd") {
-        println!("crd: {}", serde_yaml::to_string(&Workflow::crd()).unwrap());
+        println!(
+            "{}",
+            serde_yaml::to_string(&Workflow::crd()).expect("crd can be serialized")
+        );
         return Ok(());
     }
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "k8s_workflow_deploy=warning,error".into()),
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "k8s_workflow_deploy=warning,error".into()),
         ))
         .with(tracing_subscriber::fmt::layer().json())
         .init();
@@ -58,6 +62,7 @@ async fn main() -> Result<()> {
     warn!("Debug assertions enabled");
 
     let settings = Settings::new()?;
+    settings.validate()?;
 
     let workflow_storage = get_workflow_storage("memory");
     let metrics_client = metrics::metrics_client(settings.clone())?;
@@ -71,19 +76,16 @@ async fn main() -> Result<()> {
         Arc::new(metrics_client),
     )));
 
-    // init_workflow_crd().await?;
-
     let (shutdown_tx, _) = tokio::sync::broadcast::channel::<bool>(100);
     let (rev_shutdown_tx, mut rev_shutdown_rx) = tokio::sync::broadcast::channel::<bool>(100);
 
     let namespace_join_handler = {
         let d_shutdown_tx = shutdown_tx.clone();
-        let settings = settings.clone();
         let app_context = app_context.clone();
         let ns_rev_shutdown_tx = rev_shutdown_tx.clone();
         tokio::spawn(async move {
             let mut loop_rx = d_shutdown_tx.subscribe();
-            if let Err(err) = watch_namespace(settings, app_context, &mut loop_rx).await {
+            if let Err(err) = watch_namespace(app_context, &mut loop_rx).await {
                 error!(cause = ?err, "watch_namespace error");
                 ns_rev_shutdown_tx.send(true).unwrap();
             }
@@ -92,12 +94,11 @@ async fn main() -> Result<()> {
 
     let deployment_join_handler = {
         let d_shutdown_tx = shutdown_tx.clone();
-        let settings = settings.clone();
         let app_context = app_context.clone();
         let d_rev_shutdown_tx = rev_shutdown_tx.clone();
         tokio::spawn(async move {
             let mut loop_rx = d_shutdown_tx.subscribe();
-            if let Err(err) = watch_deployment(settings.clone(), app_context, &mut loop_rx).await {
+            if let Err(err) = watch_deployment(app_context, &mut loop_rx).await {
                 error!(cause = ?err, "watch_deployment error");
                 d_rev_shutdown_tx.send(true).unwrap();
             }
@@ -106,12 +107,11 @@ async fn main() -> Result<()> {
 
     let workflow_join_handler = {
         let w_shutdown_tx = shutdown_tx.clone();
-        let settings = settings.clone();
         let app_context = app_context.clone();
         let w_rev_shutdown_tx = rev_shutdown_tx.clone();
         tokio::spawn(async move {
             let mut loop_rx = w_shutdown_tx.subscribe();
-            if let Err(err) = watch_workflow(settings.clone(), app_context, &mut loop_rx).await {
+            if let Err(err) = watch_workflow(app_context, &mut loop_rx).await {
                 error!(cause = ?err, "watch_workflow error");
                 w_rev_shutdown_tx.send(true).unwrap();
             }
@@ -120,12 +120,11 @@ async fn main() -> Result<()> {
 
     let reconcile_join_handler = {
         let r_shutdown_tx = shutdown_tx.clone();
-        let settings = settings.clone();
         let app_context = app_context.clone();
         let r_rev_shutdown_tx = rev_shutdown_tx.clone();
         tokio::spawn(async move {
             let mut loop_rx = r_shutdown_tx.subscribe();
-            if let Err(err) = reconcile_loop(settings.clone(), app_context, &mut loop_rx).await {
+            if let Err(err) = reconcile_loop(app_context, &mut loop_rx).await {
                 error!(cause = ?err, "reconcile_loop error");
                 r_rev_shutdown_tx.send(true).unwrap();
             }
@@ -134,14 +133,11 @@ async fn main() -> Result<()> {
 
     let action_join_handler = {
         let a_shutdown_tx = shutdown_tx.clone();
-        let settings = settings.clone();
         let app_context = app_context.clone();
         let a_rev_shutdown_tx = rev_shutdown_tx.clone();
         tokio::spawn(async move {
             let mut loop_rx = a_shutdown_tx.subscribe();
-            if let Err(err) =
-                action_loop(settings.clone(), app_context, &mut loop_rx, &mut action_rx).await
-            {
+            if let Err(err) = action_loop(app_context, &mut loop_rx, &mut action_rx).await {
                 error!(cause = ?err, "action_loop error");
                 a_rev_shutdown_tx.send(true).unwrap();
             }

@@ -19,7 +19,6 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     action::Action,
-    config::Settings,
     context::Context,
     k8s_util::replace_last,
     when::{parse_supressions, Supression},
@@ -48,7 +47,6 @@ impl WorkflowJob {
 }
 
 pub(crate) async fn action_loop(
-    _settings: Settings,
     context: Context,
     shutdown: &mut Receiver<bool>,
     rx: &mut ActionReceiver<Action>,
@@ -62,6 +60,7 @@ pub(crate) async fn action_loop(
 
     let mut workflow_queue: HashSet<WorkflowJob> = HashSet::new();
     let mut workflow_supressions: HashMap<String, Vec<Supression>> = HashMap::new();
+    let mut workflow_max_in_flight: HashMap<String, u8> = HashMap::new();
 
     'outer: loop {
         tokio::select! {
@@ -150,18 +149,22 @@ pub(crate) async fn action_loop(
                         info!("supressions: {:?}", supressions);
                         workflow_supressions.insert(workflow_name.clone(), supressions);
 
+                        workflow_max_in_flight.insert(workflow_name.clone(), workflow.spec.parallel.unwrap_or(1) as u8);
+
                         if version_changed {
+                            let now = Utc::now();
+                            let after = now + Duration::seconds(workflow.spec.debounce.unwrap_or(15) as i64);
+
                             // 3. Remove any items from the queue that are not in-flight and have the same workflow name and have a different workflow checksum
                             workflow_queue.retain(|x| x.should_retain(&workflow_name));
 
-                            let now = Utc::now();
                             // 4. Add all of the groups to the queue
                             workflow.spec.namespaces.iter().for_each(|namespace| {
                                 workflow_queue.insert(WorkflowJob {
                                     workflow: workflow_name.clone(),
                                     checksum: latest_workflow,
                                     group: namespace.clone(),
-                                    after: now + Duration::seconds(15),
+                                    after,
                                     in_flight: false,
                                 });
                             });
@@ -185,6 +188,8 @@ pub(crate) async fn action_loop(
                         let supressions = parse_supressions(workflow.spec.supression);
                         info!("supressions: {:?}", supressions);
                         workflow_supressions.insert(workflow_name.clone(), supressions);
+
+                        workflow_max_in_flight.insert(workflow_name.clone(), workflow.spec.parallel.unwrap_or(1) as u8);
 
                         // If there are any queued jobs, either in flight or waiting, for the workflow then don't do anything.
                         let queued_workflow_jobs = workflow_queue.iter().filter(|x| x.workflow == workflow_name).count();
@@ -231,7 +236,11 @@ pub(crate) async fn action_loop(
             }
 
             // TODO: Get this from workflow config.
-            let max_in_flight = 3;
+            let max_in_flight = workflow_max_in_flight
+                .get(&workflow_name)
+                .map(|v| *v as usize)
+                .unwrap_or(1);
+
             let mut in_flight_count = max_in_flight
                 - workflow_queue
                     .clone()

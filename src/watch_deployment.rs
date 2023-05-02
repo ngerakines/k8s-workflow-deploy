@@ -9,10 +9,9 @@ use kube::{
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
 
-use crate::{config::Settings, context::Context};
+use crate::context::Context;
 
 pub(crate) async fn watch_deployment(
-    _settings: Settings,
     context: Context,
     shutdown: &mut Receiver<bool>,
 ) -> Result<()> {

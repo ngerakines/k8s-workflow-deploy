@@ -33,6 +33,7 @@ pub(crate) struct WorkflowSpec {
     pub(crate) namespaces: Vec<String>,
     pub(crate) version: String,
     pub(crate) debounce: Option<u32>,
+    pub(crate) parallel: Option<u32>,
     pub(crate) supression: Vec<String>,
     pub(crate) steps: Vec<WorkflowStep>,
 }
@@ -108,6 +109,7 @@ mod tests {
             spec: WorkflowSpec {
                 version: "v1".to_string(),
                 namespaces: vec!["default".to_string()],
+                parallel: None,
                 debounce: None,
                 supression: vec![],
                 steps: vec![],
